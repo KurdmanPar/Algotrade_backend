@@ -47,5 +47,3 @@ class TradeAdmin(admin.ModelAdmin):
 class SignalAdmin(admin.ModelAdmin):
     list_display = ('strategy', 'symbol', 'signal_type', 'confidence', 'processed', 'timestamp')
     list_filter = ('signal_type', 'processed')
-
-# Register your models here.

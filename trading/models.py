@@ -23,11 +23,6 @@ class User(AbstractUser):
     )
 
 
-
-##############################################3
-##############################################
-
-
 class Role(models.Model):
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
