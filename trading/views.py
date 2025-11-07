@@ -1,34 +1,133 @@
-from rest_framework import viewsets
+# backend/trading/views.py
+
+from rest_framework import viewsets, permissions
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
+from rest_framework.response import Response
 from .models import User, Role, Strategy, Indicator, Bot, Trade, Signal
-from .serializers import UserSerializer, RoleSerializer, StrategySerializer, IndicatorSerializer, BotSerializer, TradeSerializer, SignalSerializer
+from .serializers import (
+    UserSerializer, RoleSerializer, StrategySerializer,
+    IndicatorSerializer, BotSerializer, TradeSerializer, SignalSerializer
+)
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
+    """
+    ViewSet برای مدیریت مدل کاربر.
+    - اکشن 'create' (ثبت‌نام) برای همه باز است.
+    - بقیه اکشن‌ها فقط برای خود کاربر قابل دسترسی هستند.
+    """
+    queryset = User.objects.all()  # این خط برای روتر ضروری است
     serializer_class = UserSerializer
+
+    def get_permissions(self):
+        if self.action == 'create':
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return User.objects.all()
+        return User.objects.filter(id=self.request.user.id)
+
 
 class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
+    permission_classes = [IsAuthenticated]
+
+
+
 
 class StrategyViewSet(viewsets.ModelViewSet):
-    queryset = Strategy.objects.all()
+    """
+    ViewSet برای مدیریت استراتژی‌ها. هر کاربر فقط استراتژی‌های خودش را می‌بیند.
+    """
+    queryset = Strategy.objects.all()  # این خط برای روتر ضروری است
     serializer_class = StrategySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # این متد در زمان اجرا فراخوانی می‌شود و کوئری را فیلتر می‌کند
+        return Strategy.objects.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        """
+        اطمینان حاصل می‌کند که استراتژی جدید به کاربر لاگین شده اختصاص داده می‌شود.
+        """
+        serializer.save(owner=self.request.user)
+
+
 
 class IndicatorViewSet(viewsets.ModelViewSet):
     queryset = Indicator.objects.all()
     serializer_class = IndicatorSerializer
+    permission_classes = [IsAuthenticated]
+
+
+# backend/trading/views.py
+
+# ... سایر ویوها ...
 
 class BotViewSet(viewsets.ModelViewSet):
-    queryset = Bot.objects.all()
+    """
+    ViewSet برای مدیریت بات‌ها. هر کاربر فقط بات‌های خودش را می‌بیند.
+    """
+    queryset = Bot.objects.all()  # این خط برای روتر ضروری است
     serializer_class = BotSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Bot.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        """
+        اطمینان حاصل می‌کند که بات جدید به کاربر لاگین شده اختصاص داده می‌شود.
+        """
+        serializer.save(user=self.request.user)
+
+# ... سایر ویوها ...
 
 class TradeViewSet(viewsets.ModelViewSet):
-    queryset = Trade.objects.all()
+    """
+    ViewSet برای مدیریت معاملات. هر کاربر فقط معاملات مربوط به بات‌های خودش را می‌بیند.
+    """
+    queryset = Trade.objects.all()  # این خط برای روتر ضروری است
     serializer_class = TradeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Trade.objects.filter(bot__user=self.request.user)
+
 
 class SignalViewSet(viewsets.ModelViewSet):
-    queryset = Signal.objects.all()
+    """
+    ViewSet برای مدیریت سیگنال‌ها. هر کاربر فقط سیگنال‌های مربوط به استراتژی‌های خودش را می‌بیند.
+    """
+    queryset = Signal.objects.all()  # این خط برای روتر ضروری است
     serializer_class = SignalSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Signal.objects.filter(strategy__owner=self.request.user)
 
 
-# Create your views here.
+class CustomObtainAuthToken(ObtainAuthToken):
+    """
+    ویوی سفارشی برای ورود کاربر و دریافت توکن.
+    این ویو علاوه بر توکن، اطلاعات کاربر را نیز برمی‌گرداند.
+    """
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data,
+                                           context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'user_id': user.pk,
+            'username': user.username,
+            'email': user.email
+        })

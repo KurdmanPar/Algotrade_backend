@@ -14,9 +14,14 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
+# backend/config/urls.py
+
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # تمام URLهای اپلیکیشن trading با پیشوند /api/ در دسترس خواهند بود
+    path('api/', include('trading.urls')),
 ]

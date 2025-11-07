@@ -1,3 +1,4 @@
+# backend/config/settings.py
 """
 Django settings for config project.
 
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # My App
     'trading',
+    'core',
 ]
 
 MIDDLEWARE = [
@@ -74,12 +76,32 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # این خط کلیدی است که باید اضافه شود
+        'ATOMIC_REQUESTS': True,
     }
 }
+
+################################### PostgreSQL یا MySQL استفاده کنید
+# مثال برای PostgreSQL
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'algotrade_db',
+#         'USER': 'postgres',
+#         'PASSWORD': 'your_password',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#         'ATOMIC_REQUESTS': True,  # این خط را فراموش نکنید!
+#     }
+# }
+
+###################################
+
 
 
 # Password validation
@@ -127,7 +149,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 
-
+#######################################
 ####################  MY Add Commands :
+#######################################
 
+
+# Custom user model
 AUTH_USER_MODEL = 'trading.User'
+
+
+
+
+# تنظیمات Django REST Framework  - برای امنیت
+REST_FRAMEWORK = {
+    # کلاس‌های احراز هویت پیش‌فرض
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',  # برای کار با وب‌سایت
+        'rest_framework.authentication.TokenAuthentication',    # بهترین گزینه برای API
+    ],
+    # کلاس‌های دسترسی پیش‌فرض
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',  # به طور پیش‌فرض، همه نیاز به لاگین دارند
+    ]
+}
