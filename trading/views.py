@@ -1,7 +1,11 @@
 # backend/trading/views.py
 
-from rest_framework import viewsets, permissions
+
+
+
+from rest_framework import viewsets, permissions, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.decorators import action  # این خط را اضافه کنید
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
@@ -10,6 +14,11 @@ from .serializers import (
     UserSerializer, RoleSerializer, StrategySerializer,
     IndicatorSerializer, BotSerializer, TradeSerializer, SignalSerializer
 )
+from .strategy_logic import MovingAverageCrossoverStrategy
+import pandas as pd
+
+
+
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -67,28 +76,7 @@ class IndicatorViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-# backend/trading/views.py
 
-# ... سایر ویوها ...
-
-class BotViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet برای مدیریت بات‌ها. هر کاربر فقط بات‌های خودش را می‌بیند.
-    """
-    queryset = Bot.objects.all()  # این خط برای روتر ضروری است
-    serializer_class = BotSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Bot.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        """
-        اطمینان حاصل می‌کند که بات جدید به کاربر لاگین شده اختصاص داده می‌شود.
-        """
-        serializer.save(user=self.request.user)
-
-# ... سایر ویوها ...
 
 class TradeViewSet(viewsets.ModelViewSet):
     """
@@ -131,3 +119,78 @@ class CustomObtainAuthToken(ObtainAuthToken):
             'username': user.username,
             'email': user.email
         })
+
+######################################
+
+
+
+
+# ... سایر ویوها ...
+
+class BotViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet برای مدیریت بات‌ها. هر کاربر فقط بات‌های خودش را می‌بیند.
+    """
+    queryset = Bot.objects.all()  # این خط برای روتر ضروری است
+    serializer_class = BotSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Bot.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        """
+        اطمینان حاصل می‌کند که بات جدید به کاربر لاگین شده اختصاص داده می‌شود.
+        """
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def run_backtest(self, request, pk=None):
+        """
+        یک بک‌تست ساده برای بات مورد نظر اجرا می‌کند.
+        فعلاً از داده‌های قیمتی ساختگی استفاده می‌کند.
+        """
+        bot = self.get_object()
+
+        # بررسی می‌کنیم که بات یک استراتژی دارد
+        if not bot.strategy:
+            return Response(
+                {"error": "This bot is not assigned a strategy."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 1. ایجاد داده‌های قیمتی ساختگی
+        # در یک سیستم واقعی، این داده‌ها از یک API خارجی دریافت می‌شوند
+        price_data = pd.DataFrame(
+            data={
+                'close': [100, 101, 99, 102, 98, 103, 105, 104, 106, 107,
+                          110, 112, 115, 118, 120, 125, 128, 130, 132, 135,
+                          133, 130, 125, 120, 115, 110, 105, 100, 95, 90]
+            },
+            index=pd.date_range(start='2023-01-01', periods=30, freq='D')
+        )
+
+        # 2. اجرای استراتژی
+        # در آینده، این بخش باید بر اساس نوع استراتژی (bot.strategy.type) تصمیم‌گیری کند
+        strategy_logic = MovingAverageCrossoverStrategy()
+        signals = strategy_logic.generate_signals(price_data)
+
+        # 3. محاسبه نتایج ساده
+        buy_signals = signals[signals['positions'] > 0]
+        sell_signals = signals[signals['positions'] < 0]
+
+        # 4. بازگرداندن نتایج
+        results = {
+            "bot_id": bot.id,
+            "bot_name": bot.name,
+            "strategy": bot.strategy.name,
+            "symbol": bot.symbol,
+            "initial_capital": 10000,  # فرضی
+            "final_capital": 10500,  # فرضی
+            "total_return": "5.00%",
+            "buy_signals": buy_signals.index.strftime('%Y-%m-%d').tolist(),
+            "sell_signals": sell_signals.index.strftime('%Y-%m-%d').tolist(),
+            "signals_chart": signals.to_dict('records')  # برای نمایش در فرانت‌اند
+        }
+
+        return Response(results)

@@ -224,3 +224,65 @@ def test_create_bot_as_anonymous_user(api_client):
     response = api_client.post(url, data)
 
     assert response.status_code == 403  # Forbidden
+
+
+
+#######################################
+
+
+
+# --- تست‌های مربوط به اکشن‌های بات ---
+
+@pytest.mark.django_db
+def test_run_backtest_for_bot(authenticated_user):
+    """
+    تست اجرای بک‌تست برای یک بات
+    """
+    # ایجاد یک استراتژی و یک بات برای کاربر
+    from trading.models import Bot, Strategy
+    strategy = Strategy.objects.create(
+        name='Test Strategy for Backtest',
+        owner=authenticated_user['user'],
+        type='custom'
+    )
+    bot = Bot.objects.create(
+        name='Test Bot',
+        user=authenticated_user['user'],
+        strategy=strategy,
+        symbol='BTCUSDT',
+        exchange='binance'
+    )
+
+    # فراخوانی اکشن run_backtest
+    url = reverse('bot-run-backtest', kwargs={'pk': bot.id})
+    response = authenticated_user['client'].post(url)
+
+    assert response.status_code == 200
+    assert response.data['bot_id'] == bot.id
+    assert 'buy_signals' in response.data
+    assert 'sell_signals' in response.data
+    assert len(response.data['buy_signals']) > 0
+    assert len(response.data['sell_signals']) > 0
+
+
+@pytest.mark.django_db
+def test_run_backtest_for_bot_without_strategy(authenticated_user):
+    """
+    تست اجرای بک‌تست برای باتی که استراتژی ندارد
+    """
+    from trading.models import Bot
+    bot = Bot.objects.create(
+        name='Orphan Bot',
+        user=authenticated_user['user'],
+        strategy=None,  # این بات استراتژی ندارد
+        symbol='ETHUSDT',
+        exchange='binance'
+    )
+
+    url = reverse('bot-run-backtest', kwargs={'pk': bot.id})
+    response = authenticated_user['client'].post(url)
+
+    assert response.status_code == 400
+    assert 'error' in response.data
+    assert response.data['error'] == "This bot is not assigned a strategy."
+
