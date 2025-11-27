@@ -2,8 +2,9 @@
 # apps/exchanges/models.py
 from django.db import models
 from django.conf import settings
+from apps.core.models import BaseModel
 
-class Exchange(models.Model):
+class Exchange(BaseModel):
     """برای تعریف صرافی‌ها (مثلاً: Binance, Coinbase)"""
     EXCHANGE_TYPE_CHOICES = [
         ("CRYPTO", "Crypto Exchange"),

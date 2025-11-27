@@ -1,8 +1,9 @@
 # apps/strategies/models.py
 from django.db import models
 from django.conf import settings
+from apps.core.models import BaseModel
 
-class Strategy(models.Model):
+class Strategy(BaseModel):
     """برای تعریف یک استراتژی معاملاتی"""
     STRATEGY_CATEGORY_CHOICES = [
         ("ENTRY", "Entry Signal"),

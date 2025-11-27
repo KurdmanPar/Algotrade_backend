@@ -1,8 +1,9 @@
 # apps/trading/models.py
 from django.db import models
 from django.conf import settings
+from apps.core.models import BaseModel
 
-class Order(models.Model):
+class Order(BaseModel):
     """برای نگهداری سفارشات ارسال شده به صرافی"""
     SIDE_CHOICES = [("BUY", "Buy"), ("SELL", "Sell")]
     ORDER_TYPE_CHOICES = [("MARKET", "Market"), ("LIMIT", "Limit"), ("STOP", "Stop"), ("STOP_LIMIT", "Stop Limit")]

@@ -1,9 +1,10 @@
 # apps/bots/models.py
 from django.db import models
 from django.conf import settings
+from apps.core.models import BaseModel
 
 
-class Bot(models.Model):
+class Bot(BaseModel):
     """مدل اصلی برای هر ربات معاملاتی که کاربر ایجاد می‌کند"""
     BOT_TYPE_CHOICES = [
         ("BUY_ONLY", "Buy Only"),

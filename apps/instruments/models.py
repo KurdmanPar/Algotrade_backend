@@ -1,7 +1,8 @@
 # apps/instruments/models.py
 from django.db import models
+from apps.core.models import BaseModel
 
-class InstrumentGroup(models.Model):
+class InstrumentGroup(BaseModel):
     """برای گروه‌بندی نمادها (مثلاً: Crypto, Stock, Forex)"""
     name = models.CharField(max_length=64, unique=True)
     description = models.TextField(blank=True)

@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'corsheaders',
 
     # Local apps (ساختار جدید)
+    'apps.core',
     'apps.accounts',
     'apps.instruments',
     'apps.exchanges',
