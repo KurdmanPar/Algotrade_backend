@@ -61,17 +61,20 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
 
-    # Local apps (ساختار جدید)
+    # Local apps (ترتیب مهم)
     'apps.core',
     'apps.accounts',
     'apps.instruments',
     'apps.exchanges',
     'apps.strategies',
-    'apps.agents',
-    'apps.risk',
-    'apps.signals',
     'apps.trading',
     'apps.bots',
+    'apps.risk',
+    'apps.logging_app',  # <--- باید قبل از signals باشد
+    'apps.signals',  # <---
+    'apps.agents',
+
+
 ]
 
 
