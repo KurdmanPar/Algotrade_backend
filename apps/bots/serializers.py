@@ -3,7 +3,8 @@ from rest_framework import serializers
 from .models import Bot, BotStrategyConfig
 from apps.strategies.models import StrategyVersion
 from apps.exchanges.models import ExchangeAccount
-
+# from .connector_utils import BinanceConnector # <--- این خط را اضافه کنید
+from apps.connectors.registry import get_connector
 
 class BotStrategyConfigSerializer(serializers.ModelSerializer):
     """
@@ -19,11 +20,23 @@ class BotSerializer(serializers.ModelSerializer):
     """
     Serializer اصلی برای مدل Bot.
     """
+    ########################################## new
+    # class Meta:
+    #     model = Bot
+    #     fields = [
+    #         'id', 'name', 'description', 'bot_type', 'status', 'mode',
+    #         'max_concurrent_trades', 'desired_profit_target_percent', 'max_allowed_loss_percent',
+    #         'paper_trading_balance', 'schedule_config',
+    #         'exchange_account', 'instrument', 'strategy_configs'
+    #     ]
+    #     read_only_fields = ['created_at', 'updated_at']
+    ##########################################
+
     # برای نمایش اطلاعات مربوط به استراتژی‌های متصل به بات
     strategy_configs = BotStrategyConfigSerializer(source='strategy_configs', many=True, read_only=True)
 
     # برای نمایش اطلاعات صرافی حساب کاربر
-    exchange_account_details = serializers.StringField(source='exchange_account.label', read_only=True)
+    exchange_account_details = serializers.CharField(source='exchange_account.label', read_only=True)
 
     class Meta:
         model = Bot

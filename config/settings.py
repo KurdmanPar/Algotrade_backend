@@ -72,6 +72,8 @@ INSTALLED_APPS = [
     'apps.risk',
     'apps.logging_app',  # <--- باید قبل از signals باشد
     'apps.signals',  # <---
+    'apps.connectors',
+    'apps.market_data',
     'apps.agents',
 
 
