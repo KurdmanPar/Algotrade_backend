@@ -1,39 +1,37 @@
-# apps/agents/models.py
+# agents/models.py
 from django.db import models
-from apps.core.models import BaseModel
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
 
 class AgentType(models.Model):
-    """برای تعریف انواع عامل‌ها (StrategyAgent, RiskAgent, ...)"""
-    name = models.CharField(max_length=64, unique=True) # StrategyAgent, RiskAgent, ExecutionAgent, ...
+    """نوع عامل (Agent Type)"""
+    name = models.CharField(max_length=64, unique=True)
     description = models.TextField(blank=True)
-    capabilities = models.JSONField(default=dict) # consumes, produces, ...
+    capabilities = models.JSONField(default=dict)  # قابلیت‌های عامل
 
     def __str__(self):
         return self.name
 
-class Agent(BaseModel):
-    """برای نگهداری اطلاعات هر نمونه از یک عامل"""
-    name = models.CharField(max_length=128, unique=True)
-    type = models.ForeignKey("agents.AgentType", on_delete=models.PROTECT, related_name="agents")
+
+class Agent(models.Model):
+    """عامل (Agent) اصلی در سیستم"""
+    name = models.CharField(max_length=128)
+    type = models.ForeignKey(AgentType, on_delete=models.PROTECT, related_name="agents")
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="agents")
     is_active = models.BooleanField(default=True)
-
-    def __str__(self):
-        return f"{self.name} ({self.type.name})"
-
-class AgentConfig(models.Model):
-    """برای نگهداری پیکربندی هر عامل"""
-    agent = models.OneToOneField("agents.Agent", on_delete=models.CASCADE, related_name="config")
-    params = models.JSONField(default=dict)
+    config = models.JSONField(default=dict)  # تنظیمات عامل
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Config for {self.agent.name}"
+        return f"{self.name} ({self.type.name})"
 
-class AgentStatus(BaseModel):
-    """برای نگهداری وضعیت لحظه‌ای هر عامل"""
-    agent = models.OneToOneField("agents.Agent", on_delete=models.CASCADE, related_name="status")
-    # state = models.CharField(max_length=32, default="stopped") # running, paused, failed
+
+class AgentStatus(models.Model):
+    """وضعیت فعلی عامل"""
+    agent = models.OneToOneField(Agent, on_delete=models.CASCADE, related_name="status")
     state = models.CharField(
         max_length=32,
         choices=[
@@ -50,9 +48,9 @@ class AgentStatus(BaseModel):
     metrics = models.JSONField(default=dict)  # متریک‌های عملکردی
 
     def __str__(self):
-        return f"Status of {self.agent.name}: {self.state}"
+        return f"{self.agent.name} - {self.state}"
 
-################################### new
+
 class AgentMessage(models.Model):
     """پیام‌های ارسالی و دریافتی بین عامل‌ها"""
     sender = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="sent_messages")
@@ -66,6 +64,8 @@ class AgentMessage(models.Model):
     def __str__(self):
         return f"{self.sender.name} -> {self.receiver.name}: {self.message_type}"
 
+
+# agents/models.py (ادامه)
 
 class AgentLog(models.Model):
     """لاگ فعالیت‌های عامل"""
