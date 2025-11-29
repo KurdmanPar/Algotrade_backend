@@ -1,30 +1,32 @@
 # apps/strategies/views.py
 from rest_framework import viewsets, permissions
-from rest_framework.response import Response
-from .models import Strategy # اضافه شد
-from .serializers import StrategySerializer
+from .models import Strategy, StrategyVersion, StrategyAssignment
+from .serializers import StrategySerializer, StrategyVersionSerializer, StrategyAssignmentSerializer
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
-   """
-   اجازه دسترسی را فقط به مالک شیء می‌دهد.
-   """
-   def has_object_permission(self, request, view, obj):
-       if request.method in permissions.SAFE_METHODS:
-           return True
-       return obj.owner == request.user
+    def has_object_permission(self, request, view, obj):
+        if hasattr(obj, 'owner'):
+            return obj.owner == request.user
+        elif hasattr(obj, 'user'):
+            return obj.user == request.user
+        return True
 
 class StrategyViewSet(viewsets.ModelViewSet):
-   serializer_class = StrategySerializer
-   permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
+    serializer_class = StrategySerializer
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
-   # اضافه کردن خط زیر:
-   queryset = Strategy.objects.all()
+    def get_queryset(self):
+        return Strategy.objects.filter(owner=self.request.user)
 
-   def get_queryset(self):
-       # فقط استراتژی‌های کاربر فعلی را نشان بده
-       return Strategy.objects.filter(owner=self.request.user)
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
-   def perform_create(self, serializer):
-       # مالک را به طور خودکار تنظیم کن
-       serializer.save(owner=self.request.user)
+class StrategyVersionViewSet(viewsets.ModelViewSet):
+    queryset = StrategyVersion.objects.all()
+    serializer_class = StrategyVersionSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
+class StrategyAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = StrategyAssignment.objects.all()
+    serializer_class = StrategyAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated]

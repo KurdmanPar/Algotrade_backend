@@ -4,7 +4,7 @@ from .models import Exchange, ExchangeAccount, Wallet, WalletBalance, Aggregated
 
 @admin.register(Exchange)
 class ExchangeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'type', 'is_active') # حذف 'rate_limit_per_minute'
+    list_display = ('name', 'code', 'type', 'is_active', 'rate_limit_per_minute')
     search_fields = ('name', 'code')
     list_filter = ('type', 'is_active')
 

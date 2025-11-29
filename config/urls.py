@@ -20,12 +20,20 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('apps.bots.urls')), # <--- این خط را اضافه کنید
-    path('', include('apps.strategies.urls')),  # یا هر مسیر دیگری
+    path('api/accounts/', include('apps.accounts.urls')),
+    path('api/exchanges/', include('apps.exchanges.urls')),
     path('api/instruments/', include('apps.instruments.urls')),
+    path('api/strategies/', include('apps.strategies.urls')),
+    path('api/bots/', include('apps.bots.urls')),
+    path('api/trading/', include('apps.trading.urls')),
+    path('api/risk/', include('apps.risk.urls')),
+    path('api/signals/', include('apps.signals.urls')),
+    path('api/agents/', include('apps.agents.urls')),
+    path('api/logging/', include('apps.logging_app.urls')),
+    path('api/connectors/', include('apps.connectors.urls')),
+    path('api/market-data/', include('apps.market_data.urls')),
     path('api/backtesting/', include('apps.backtesting.urls')),
-    # تمام URLهای اپلیکیشن trading با پیشوند /api/ در دسترس خواهند بود
-    # path('api/', include('trading.urls')),
 ]

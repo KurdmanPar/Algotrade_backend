@@ -1,13 +1,14 @@
 # apps/bots/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import BotViewSet
+from . import views
 
-# یک Router برای مدیریت مسیرهای ViewSet به صورت خودکار
 router = DefaultRouter()
-router.register(r'bots', BotViewSet, basename='bot')
+router.register(r'bots', views.BotViewSet)
+router.register(r'bot-strategy-configs', views.BotStrategyConfigViewSet)
+router.register(r'bot-logs', views.BotLogViewSet)
+router.register(r'bot-performance-snapshots', views.BotPerformanceSnapshotViewSet)
 
-# urlpatterns لیست تمام مسیرهای این اپلیکیشن را در خود جای می‌دهد
 urlpatterns = [
-    path('', include(router.urls)),
+    path('api/', include(router.urls)),
 ]

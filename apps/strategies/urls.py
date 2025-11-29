@@ -4,9 +4,10 @@ from rest_framework.routers import DefaultRouter
 from . import views
 
 router = DefaultRouter()
-# مشخص کردن basename به صورت صریح
-router.register(r'strategies', views.StrategyViewSet, basename='strategy')
+router.register(r'strategies', views.StrategyViewSet)
+router.register(r'strategy-versions', views.StrategyVersionViewSet)
+router.register(r'strategy-assignments', views.StrategyAssignmentViewSet)
 
 urlpatterns = [
-   path('api/', include(router.urls)),
+    path('api/', include(router.urls)),
 ]
