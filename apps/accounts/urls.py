@@ -10,9 +10,9 @@ router.register(r'users', views.UserViewSet)
 urlpatterns = [
     path('', include(router.urls)),
     # JWT endpoints
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
-    path('api/auth/register/', views.RegisterView.as_view(), name='register'),
-    path('api/auth/profile/', views.ProfileView.as_view(), name='user_profile'),
+    path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    path('auth/register/', views.RegisterView.as_view(), name='register'),
+    path('auth/profile/', views.ProfileView.as_view(), name='user_profile'),
 ]
