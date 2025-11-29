@@ -4,35 +4,42 @@ from .models import (
     ExchangeConnectorConfig, APICredential, ExchangeAPIEndpoint,
     ConnectorSession, RateLimitState, ConnectorLog, ConnectorHealthCheck
 )
-from .serializers import *
+from .serializers import (
+    ExchangeConnectorConfigSerializer, APICredentialSerializer, ExchangeAPIEndpointSerializer,
+    ConnectorSessionSerializer, RateLimitStateSerializer, ConnectorLogSerializer, ConnectorHealthCheckSerializer
+)
 
-class ConnectorViewSetBase:
-    permission_classes = [permissions.IsAuthenticated]
-
-class ExchangeConnectorConfigViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class ExchangeConnectorConfigViewSet(viewsets.ModelViewSet):  # ← اینجا باید تعریف شود
     queryset = ExchangeConnectorConfig.objects.all()
     serializer_class = ExchangeConnectorConfigSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class APICredentialViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class APICredentialViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = APICredential.objects.all()
     serializer_class = APICredentialSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class ExchangeAPIEndpointViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class ExchangeAPIEndpointViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = ExchangeAPIEndpoint.objects.all()
     serializer_class = ExchangeAPIEndpointSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class ConnectorSessionViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class ConnectorSessionViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = ConnectorSession.objects.all()
     serializer_class = ConnectorSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class RateLimitStateViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class RateLimitStateViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = RateLimitState.objects.all()
     serializer_class = RateLimitStateSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class ConnectorLogViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class ConnectorLogViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = ConnectorLog.objects.all()
     serializer_class = ConnectorLogSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-class ConnectorHealthCheckViewSet(viewsets.ModelViewSet, ConnectorViewSetBase):
+class ConnectorHealthCheckViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = ConnectorHealthCheck.objects.all()
     serializer_class = ConnectorHealthCheckSerializer
+    permission_classes = [permissions.IsAuthenticated]

@@ -16,6 +16,9 @@ router.register(r'price-action-patterns', views.PriceActionPatternViewSet)
 router.register(r'smart-money-concepts', views.SmartMoneyConceptViewSet)
 router.register(r'ai-metrics', views.AIMetricViewSet)
 
+
+
+
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),  # مستقیماً مسیرهای روتر اینجا قرار می‌گیرد
 ]

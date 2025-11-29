@@ -9,5 +9,5 @@ router.register(r'strategy-versions', views.StrategyVersionViewSet)
 router.register(r'strategy-assignments', views.StrategyAssignmentViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

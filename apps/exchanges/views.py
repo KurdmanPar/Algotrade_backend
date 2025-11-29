@@ -5,52 +5,30 @@ from .serializers import (
     ExchangeSerializer, ExchangeAccountSerializer, WalletSerializer,
     WalletBalanceSerializer, AggregatedPortfolioSerializer, AggregatedAssetPositionSerializer
 )
+from apps.core.views import SecureModelViewSet  # اضافه کنید
 
-class IsOwnerOrReadOnly(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if hasattr(obj, 'owner'):
-            return obj.owner == request.user
-        elif hasattr(obj, 'user'):
-            return obj.user == request.user
-        return True
-
-class ExchangeViewSet(viewsets.ModelViewSet):
+class ExchangeViewSet(SecureModelViewSet):
     queryset = Exchange.objects.all()
     serializer_class = ExchangeSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    # دیگر نیازی به تعریف permission_classes نیست، چون از SecureModelViewSet ارث می‌برد
 
-class ExchangeAccountViewSet(viewsets.ModelViewSet):
+class ExchangeAccountViewSet(SecureModelViewSet):
+    queryset = ExchangeAccount.objects.all()
     serializer_class = ExchangeAccountSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
+    # فیلتر خودکار بر اساس owner در SecureModelViewSet انجام می‌شود
 
-    def get_queryset(self):
-        return ExchangeAccount.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-class WalletViewSet(viewsets.ModelViewSet):
+class WalletViewSet(SecureModelViewSet):
     queryset = Wallet.objects.all()
     serializer_class = WalletSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
-class WalletBalanceViewSet(viewsets.ModelViewSet):
+class WalletBalanceViewSet(SecureModelViewSet):
     queryset = WalletBalance.objects.all()
     serializer_class = WalletBalanceSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
-class AggregatedPortfolioViewSet(viewsets.ModelViewSet):
+class AggregatedPortfolioViewSet(SecureModelViewSet):
+    queryset = AggregatedPortfolio.objects.all()
     serializer_class = AggregatedPortfolioSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
-    def get_queryset(self):
-        return AggregatedPortfolio.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        serializer.save(user=user)
-
-class AggregatedAssetPositionViewSet(viewsets.ModelViewSet):
+class AggregatedAssetPositionViewSet(SecureModelViewSet):
     queryset = AggregatedAssetPosition.objects.all()
     serializer_class = AggregatedAssetPositionSerializer
-    permission_classes = [permissions.IsAuthenticated]

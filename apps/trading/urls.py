@@ -10,5 +10,5 @@ router.register(r'positions', views.PositionViewSet)
 router.register(r'order-logs', views.OrderLogViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

@@ -9,5 +9,5 @@ router.register(r'signal-logs', views.SignalLogViewSet)
 router.register(r'signal-alerts', views.SignalAlertViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

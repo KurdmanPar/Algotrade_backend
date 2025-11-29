@@ -12,5 +12,5 @@ router.register(r'user-notification-preferences', views.UserNotificationPreferen
 router.register(r'audit-logs', views.AuditLogViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

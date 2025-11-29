@@ -11,5 +11,5 @@ router.register(r'risk-metrics', views.RiskMetricViewSet)
 router.register(r'risk-alerts', views.RiskAlertViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

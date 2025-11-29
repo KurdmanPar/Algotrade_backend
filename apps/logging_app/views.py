@@ -1,48 +1,33 @@
 # apps/logging_app/views.py
 from rest_framework import viewsets, permissions
-from .models import SystemLog, SystemEvent, NotificationChannel, Alert, UserNotificationPreference, AuditLog
+from .models import Alert, UserNotificationPreference, SystemLog, SystemEvent, NotificationChannel, AuditLog
 from .serializers import *
+from apps.core.views import SecureModelViewSet
 
-class IsOwnerOrReadOnly(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if hasattr(obj, 'owner'):
-            return obj.owner == request.user
-        elif hasattr(obj, 'user'):
-            return obj.user == request.user
-        return True
+class AlertViewSet(SecureModelViewSet):
+    queryset = Alert.objects.all()  # اضافه شود
+    serializer_class = AlertSerializer
 
-class SystemLogViewSet(viewsets.ModelViewSet):
+class UserNotificationPreferenceViewSet(SecureModelViewSet):
+    queryset = UserNotificationPreference.objects.all()  # اضافه شود
+    serializer_class = UserNotificationPreferenceSerializer
+
+class SystemLogViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = SystemLog.objects.all()
     serializer_class = SystemLogSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class SystemEventViewSet(viewsets.ModelViewSet):
+class SystemEventViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = SystemEvent.objects.all()
     serializer_class = SystemEventSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class NotificationChannelViewSet(viewsets.ModelViewSet):
+class NotificationChannelViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = NotificationChannel.objects.all()
     serializer_class = NotificationChannelSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
-class AlertViewSet(viewsets.ModelViewSet):
-    serializer_class = AlertSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
-
-    def get_queryset(self):
-        return Alert.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        serializer.save(user=user)
-
-class UserNotificationPreferenceViewSet(viewsets.ModelViewSet):
-    queryset = UserNotificationPreference.objects.all()
-    serializer_class = UserNotificationPreferenceSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-class AuditLogViewSet(viewsets.ModelViewSet):
+class AuditLogViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = AuditLog.objects.all()
     serializer_class = AuditLogSerializer
     permission_classes = [permissions.IsAuthenticated]

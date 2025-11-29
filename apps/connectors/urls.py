@@ -13,5 +13,5 @@ router.register(r'connector-logs', views.ConnectorLogViewSet)
 router.register(r'connector-health-checks', views.ConnectorHealthCheckViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

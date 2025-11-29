@@ -2,41 +2,28 @@
 from rest_framework import viewsets, permissions
 from .models import RiskProfile, RiskRule, RiskEvent, RiskMetric, RiskAlert
 from .serializers import *
+from apps.core.views import SecureModelViewSet
 
-class IsOwnerOrReadOnly(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if hasattr(obj, 'owner'):
-            return obj.owner == request.user
-        elif hasattr(obj, 'user'):
-            return obj.user == request.user
-        return True
-
-class RiskProfileViewSet(viewsets.ModelViewSet):
+class RiskProfileViewSet(SecureModelViewSet):
+    queryset = RiskProfile.objects.all()  # اضافه شود
     serializer_class = RiskProfileSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
-    def get_queryset(self):
-        return RiskProfile.objects.filter(owner=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
-
-class RiskRuleViewSet(viewsets.ModelViewSet):
+class RiskRuleViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = RiskRule.objects.all()
     serializer_class = RiskRuleSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class RiskEventViewSet(viewsets.ModelViewSet):
+class RiskEventViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = RiskEvent.objects.all()
     serializer_class = RiskEventSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class RiskMetricViewSet(viewsets.ModelViewSet):
+class RiskMetricViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = RiskMetric.objects.all()
     serializer_class = RiskMetricSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class RiskAlertViewSet(viewsets.ModelViewSet):
+class RiskAlertViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = RiskAlert.objects.all()
     serializer_class = RiskAlertSerializer
     permission_classes = [permissions.IsAuthenticated]

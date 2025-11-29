@@ -12,5 +12,5 @@ router.register(r'aggregated-portfolios', views.AggregatedPortfolioViewSet)
 router.register(r'aggregated-asset-positions', views.AggregatedAssetPositionViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

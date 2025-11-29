@@ -10,5 +10,5 @@ router.register(r'market-data-sync-logs', views.MarketDataSyncLogViewSet)
 router.register(r'market-data-snapshots', views.MarketDataSnapshotViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

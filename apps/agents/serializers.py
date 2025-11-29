@@ -11,13 +11,6 @@ class AgentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Agent
         fields = '__all__'
-        read_only_fields = ('owner', 'created_by')
-
-    def create(self, validated_data):
-        user = self.context['request'].user
-        validated_data['owner'] = user
-        validated_data['created_by'] = user
-        return super().create(validated_data)
 
 class AgentInstanceSerializer(serializers.ModelSerializer):
     class Meta:

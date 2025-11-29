@@ -10,5 +10,5 @@ router.register(r'bot-logs', views.BotLogViewSet)
 router.register(r'bot-performance-snapshots', views.BotPerformanceSnapshotViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]

@@ -9,5 +9,5 @@ router.register(r'backtest-runs', views.BacktestRunViewSet)
 router.register(r'backtest-results', views.BacktestResultViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]
