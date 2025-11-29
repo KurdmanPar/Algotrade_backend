@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'apps.risk',          # RiskProfile (به accounts, bots, agents, trading)
     'apps.connectors',    # APICredential, ExchangeConnectorConfig (به exchanges)
     'apps.logging_app',   # SystemLog, Alert (به agents, signals, trading, risk, accounts)
+    'apps.backtesting',
 ]
 
 

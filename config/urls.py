@@ -23,6 +23,9 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('apps.bots.urls')), # <--- این خط را اضافه کنید
+    path('', include('apps.strategies.urls')),  # یا هر مسیر دیگری
+    path('api/instruments/', include('apps.instruments.urls')),
+    path('api/backtesting/', include('apps.backtesting.urls')),
     # تمام URLهای اپلیکیشن trading با پیشوند /api/ در دسترس خواهند بود
     # path('api/', include('trading.urls')),
 ]
