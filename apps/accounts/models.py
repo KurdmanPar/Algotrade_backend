@@ -1,14 +1,48 @@
 # apps/accounts/models.py
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from apps.core.models import BaseModel
 
 
+class CustomUserManager(BaseUserManager):
+    """
+    Custom User Manager where email is the unique identifier
+    for authentication instead of usernames.
+    """
+    def create_user(self, email, password=None, **extra_fields):
+        """
+        Create and save a regular user with the given email and password.
+        """
+        if not email:
+            raise ValueError(_("The Email must be set"))
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        """
+        Create and save a superuser with the given email and password.
+        """
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError(_("Superuser must have is_staff=True."))
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError(_("Superuser must have is_superuser=True."))
+
+        return self.create_user(email, password, **extra_fields)
+
+
+
+
 class CustomUser(AbstractUser, BaseModel):
     """
     مدل کاربر سفارشی پروژه که از ایمیل به عنوان نام کاربری استفاده می‌کند.
-    مناسب برای سیستم معاملات الگوریتمی حرفه ای هوشمند.
+    مناسب برای سیستم معاملات الگوریتمی.
     """
     username = None  # غیرفعال کردن username پیش‌فرض
     email = models.EmailField(unique=True, verbose_name=_("Email Address"))
@@ -40,16 +74,13 @@ class CustomUser(AbstractUser, BaseModel):
     is_verified = models.BooleanField(default=False, verbose_name=_("Is Email Verified"))
     is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
     is_locked = models.BooleanField(default=False, verbose_name=_("Is Account Locked"))
-    is_demo = models.BooleanField(default=True, verbose_name=_("Is Demo Account"))  # حساب آزمایشی یا واقعی
+    is_demo = models.BooleanField(default=True, verbose_name=_("Is Demo Account"))
 
     # اطلاعات امنیتی
     failed_login_attempts = models.PositiveIntegerField(default=0, verbose_name=_("Failed Login Attempts"))
     locked_until = models.DateTimeField(null=True, blank=True, verbose_name=_("Account Locked Until"))
     last_login_ip = models.GenericIPAddressField(null=True, blank=True, verbose_name=_("Last Login IP"))
     last_login_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Login At"))
-
-    # زمان ایجاد و بروزرسانی حساب
-    # این فیلدها از BaseModel ارث می‌بریم: created_at, updated_at
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
@@ -60,6 +91,9 @@ class CustomUser(AbstractUser, BaseModel):
     class Meta:
         verbose_name = _("Custom User")
         verbose_name_plural = _("Custom Users")
+
+    # اعمال مانیجر سفارشی
+    objects = CustomUserManager()
 
 
 class UserProfile(BaseModel):

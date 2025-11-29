@@ -1,80 +1,83 @@
 # apps/connectors/binance_connector.py
 from .base import ExchangeConnector
+from .registry import register_connector
 from binance.client import Client as BinanceClient
 from binance.exceptions import BinanceAPIException
+import logging
 
+logger = logging.getLogger(__name__)
+
+@register_connector('BINANCE') # ثبت کانکتور با کد صرافی
 class BinanceConnector(ExchangeConnector):
     """
     پیاده‌سازی کامل اتصال‌دهنده برای صرافی بایننس.
-    این کلاس، منطق اتصال به API بایننس را پیاده‌سازی می‌کند.
     """
-    def __init__(self, api_key: str, api_secret: str, **kwargs):
-        """
-        سازنده کلاس برای ذخیره کلیدهای API.
-        """
-        super().__init__(api_key, api_secret, **kwargs)
+    def __init__(self, api_key: str, api_secret: str, exchange_account_id: int, **kwargs):
+        super().__init__(api_key, api_secret, exchange_account_id, **kwargs)
         self.client = None
 
     def connect(self) -> bool:
-        """
-        اتصال به صرافی و تایید اعتبارنامه‌ها.
-        """
         try:
             self.client = BinanceClient(api_key=self.api_key, api_secret=self.api_secret)
-            # تست اتصال با دریافت اطلاعات حساب
             account_info = self.client.get_account()
-            print("Successfully connected to Binance.")
+            logger.info("Successfully connected to Binance.")
             return True
         except BinanceAPIException as e:
-            print(f"Failed to connect to Binance: {e}")
+            logger.error(f"Failed to connect to Binance: {e}")
             return False
 
+    def disconnect(self):
+        self.client = None
+
+    def is_connected(self) -> bool:
+        return self.client is not None
+
     def get_balance(self, currency: str = None) -> dict:
-        """
-        دریافت موجودی حساب یا یک ارز خاص.
-        """
         try:
             if currency:
                 balance_info = self.client.get_asset_balance(asset=currency)
                 return {currency: balance_info['free']}
             else:
-                return self.client.get_account()
+                return self.client.get_account()['balances']
         except BinanceAPIException as e:
-            print(f"Failed to get balance: {e}")
+            self._log_interaction('get_balance', '/api/v3/account', {}, {'error': str(e)}, error_message=str(e))
             return {}
 
     def place_order(self, symbol: str, side: str, order_type: str, quantity: float, price: float = None, **kwargs):
-        """
-        ثبت یک سفارش جدید در بایننس.
-        """
         try:
+            # چک کردن محدودیت
+            self._handle_rate_limit('/api/v3/order')
             if order_type == 'MARKET':
-                return self.client.create_order(symbol=symbol, side=side, type=order_type, quantity=quantity)
+                result = self.client.create_order(symbol=symbol, side=side, type=order_type, quantity=quantity)
             elif order_type == 'LIMIT':
-                return self.client.create_order(symbol=symbol, side=side, type=new_order_type, quantity=quantity, price=price)
-            # ... پیاده‌سازی سایر انواع سفارش
+                result = self.client.create_order(symbol=symbol, side=side, type=order_type, quantity=quantity, price=price)
+            else:
+                raise ValueError(f"Unsupported order type: {order_type}")
+
+            self._log_interaction('place_order', '/api/v3/order', {'symbol': symbol, 'side': side, 'type': order_type, 'quantity': quantity, 'price': price}, result)
+            return result
         except BinanceAPIException as e:
-            print(f"Failed to place order: {e}")
+            self._log_interaction('place_order', '/api/v3/order', {'symbol': symbol, 'side': side, 'type': order_type, 'quantity': quantity, 'price': price}, {'error': str(e)}, error_message=str(e))
             return {'error': str(e)}
 
     def cancel_order(self, order_id: str, symbol: str, **kwargs):
-        """
-        لغو یک سفارش در بایننس.
-        """
         try:
-            return self.client.cancel_order(symbol=symbol, orderId=order_id)
+            self._handle_rate_limit('/api/v3/order')
+            result = self.client.cancel_order(symbol=symbol, orderId=order_id)
+            self._log_interaction('cancel_order', '/api/v3/order', {'orderId': order_id, 'symbol': symbol}, result)
+            return result
         except BinanceAPIException as e:
+            self._log_interaction('cancel_order', '/api/v3/order', {'orderId': order_id, 'symbol': symbol}, {'error': str(e)}, error_message=str(e))
             return {'error': str(e)}
 
     def get_order_status(self, order_id: str, symbol: str, **kwargs):
-        """
-        بررسی وضعیت یک سفارش.
-        """
         try:
-            return self.client.get_order(symbol=symbol, orderId=order_id)
+            self._handle_rate_limit('/api/v3/order')
+            result = self.client.get_order(symbol=symbol, orderId=order_id)
+            self._log_interaction('get_order_status', '/api/v3/order', {'orderId': order_id, 'symbol': symbol}, result)
+            return result
         except BinanceAPIException as e:
-        # except BinancePythonClient `BinanceConnector` for your trading system.This class will handle all interactions with the Binance API.
+            self._log_interaction('get_order_status', '/api/v3/order', {'orderId': order_id, 'symbol': symbol}, {'error': str(e)}, error_message=str(e))
             return {'error': str(e)}
 
-    # متدهای دیگر مانند get_order_history, get_open_positions و ...
-
+    # سایر متدها...

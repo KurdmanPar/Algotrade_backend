@@ -1,27 +1,24 @@
 # apps/connectors/registry.py
-from .binance_connector import BinanceConnector
-# از سایر اتصال‌دهنده‌ها اینجا import کنید
-# from .coinbase_connector import CoinbaseConnector
-# from .kraken_connector import KrakenConnector
 
-CONNECTOR_REGISTRY = {
-    # 'BINANCE': BinanceConnector,
-    # # 'COINBASE': CoinbaseConnector,
-    # # 'KRAKEN': KrakenConnector,
-    # # ...
+_CONNECTORS = {}
 
-    'BINANCE': 'apps.connectors.binance_connector.BinanceConnector',
-    # 'COINBASE': 'apps.connectors.coinbase_connector.CoinbaseConnector',
-    # ...
-}
+def register_connector(exchange_code: str):
+    """
+    دکوریتور برای ثبت یک کلاس کانکتور.
+    """
+    def decorator(cls):
+        _CONNECTORS[exchange_code.upper()] = cls
+        return cls
+    return decorator
 
 def get_connector(exchange_code: str):
     """
-    با دریافت کد صرافی (مثلاً 'BINANCE')، نمونه کلاس اتصال‌دهنده مربوطه را برمی‌گرداند.
+    دریافت کلاس کانکتور بر اساس کد صرافی.
     """
-    """Gets the connector class for a given exchange code."""
-    connector_class = CONNECTOR_REGISTRY.get(exchange_code.upper())
-    if not connector_class:
-        raise ValueError(f"Unsupported exchange: {exchange_code}")
-    return connector_class
+    return _CONNECTORS.get(exchange_code.upper())
 
+def list_registered_connectors():
+    """
+    لیست تمام کانکتورهای ثبت شده.
+    """
+    return list(_CONNECTORS.keys())

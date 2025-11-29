@@ -1,4 +1,4 @@
-# config/settings/base.py
+# config/settings.py
 
 import os
 from pathlib import Path
@@ -61,22 +61,20 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
 
-    # Local apps (ترتیب مهم)
-    'apps.core',
-    'apps.accounts',
-    'apps.instruments',
-    'apps.exchanges',
-    'apps.strategies',
-    'apps.trading',
-    'apps.bots',
-    'apps.risk',
-    'apps.logging_app',  # <--- باید قبل از signals باشد
-    'apps.signals',  # <---
-    'apps.connectors',
-    'apps.market_data',
-    'apps.agents',
-
-
+    # Local apps (ترتیب برحسب وابستگی)
+    'apps.core',          # BaseModel (هیچ چیز به این وابسته نیست)
+    'apps.accounts',      # User, UserProfile (وابستگی کمی دارد)
+    'apps.instruments',   # Instrument, Indicator (به accounts نه)
+    'apps.exchanges',     # Exchange, ExchangeAccount (به accounts وابسته است)
+    'apps.market_data',   # DataSource, MarketDataConfig (به instruments و exchanges)
+    'apps.strategies',    # Strategy (به instruments و accounts)
+    'apps.agents',        # Agent, AgentType (وابستگی کمی دارد، اما بقیه ممکن است به این نیاز داشته باشند)
+    'apps.signals',       # Signal (به agents, strategies, instruments, trading)
+    'apps.trading',       # Order, Trade, Position (به agents, signals, instruments, exchanges, accounts)
+    'apps.bots',          # Bot (به trading, strategies, exchanges, accounts)
+    'apps.risk',          # RiskProfile (به accounts, bots, agents, trading)
+    'apps.connectors',    # APICredential, ExchangeConnectorConfig (به exchanges)
+    'apps.logging_app',   # SystemLog, Alert (به agents, signals, trading, risk, accounts)
 ]
 
 
