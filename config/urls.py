@@ -32,6 +32,7 @@ urlpatterns = [
     path('api/risk/', include('apps.risk.urls')),
     path('api/signals/', include('apps.signals.urls')),
     path('api/agents/', include('apps.agents.urls')),
+    path('api/agent-runtime/', include('apps.agent_runtime.urls')),
     path('api/logging/', include('apps.logging_app.urls')),
     path('api/connectors/', include('apps.connectors.urls')),
     path('api/market-data/', include('apps.market_data.urls')),

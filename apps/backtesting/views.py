@@ -4,9 +4,11 @@ from .models import BacktestRun, BacktestResult
 from .serializers import BacktestRunSerializer, BacktestResultSerializer
 from apps.core.views import SecureModelViewSet
 
+
 class BacktestRunViewSet(SecureModelViewSet):
-    queryset = BacktestRun.objects.all()  # اضافه شود
+    queryset = BacktestRun.objects.all()  # اضافه شد
     serializer_class = BacktestRunSerializer
+
 
 class BacktestResultViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = BacktestResult.objects.all()

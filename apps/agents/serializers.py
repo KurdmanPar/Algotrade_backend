@@ -1,6 +1,8 @@
 # apps/agents/serializers.py
 from rest_framework import serializers
-from .models import AgentType, Agent, AgentInstance, AgentConfig, AgentStatus, AgentMessage, AgentLog, AgentMetric
+from .models import (
+    AgentType, Agent, AgentInstance, AgentConfig, AgentStatus, AgentMessage, AgentLog, AgentMetric
+)
 
 class AgentTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -11,6 +13,12 @@ class AgentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Agent
         fields = '__all__'
+        read_only_fields = ('owner',)
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        validated_data['owner'] = user
+        return super().create(validated_data)
 
 class AgentInstanceSerializer(serializers.ModelSerializer):
     class Meta:

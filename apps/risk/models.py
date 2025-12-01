@@ -6,6 +6,9 @@ from apps.core.models import BaseModel
 
 
 class RiskProfile(BaseModel):
+    """
+    پروفایل ریسک برای یک کاربر یا یک بات.
+    """
     RISK_MODEL_TYPE_CHOICES = [
         ('CLASSIC', _('Classic Risk Model')),
         ('AI', _('AI Risk Model')),
@@ -18,12 +21,12 @@ class RiskProfile(BaseModel):
         related_name="risk_profiles",
         null=True,
         blank=True,
-        verbose_name=_("User Owner")
+        verbose_name=_("Owner (User)")
     )
-    bot = models.OneToOneField(  # اینجا related_name تغییر کرد
+    bot = models.OneToOneField(
         "bots.Bot",
         on_delete=models.CASCADE,
-        related_name="risk_profile_model",  # تغییر از "risk_profile" به "risk_profile_model"
+        related_name="risk_profile_model",  # این نام مربوط به related_name ای است که قبلاً تغییر دادیم
         null=True,
         blank=True,
         verbose_name=_("Bot Owner")
@@ -45,6 +48,7 @@ class RiskProfile(BaseModel):
         verbose_name=_("Responsible Agent (MAS)")
     )
 
+    # محدودیت‌های مالی
     max_daily_loss_percent = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True,
         verbose_name=_("Max Daily Loss (%)"),
@@ -80,6 +84,7 @@ class RiskProfile(BaseModel):
         help_text=_("Risk to take on a single trade in %.")
     )
 
+    # تنظیمات حدضرر و حدسود
     use_trailing_stop = models.BooleanField(default=False, verbose_name=_("Use Trailing Stop"), help_text=_("Enable trailing stop loss."))
     trailing_stop_config = models.JSONField(
         default=dict,
@@ -99,9 +104,13 @@ class RiskProfile(BaseModel):
     class Meta:
         verbose_name = _("Risk Profile")
         verbose_name_plural = _("Risk Profiles")
+        unique_together = (("owner", "name"), ("bot", "name"))  # جلوگیری از نام تکراری برای یک کاربر یا یک بات
 
 
 class RiskRule(BaseModel):
+    """
+    قوانین خاص و سفارشی برای مدیریت ریسک.
+    """
     ACTION_CHOICES = [
         ('ALLOW', _('Allow')),
         ('DENY', _('Deny')),
@@ -150,6 +159,10 @@ class RiskRule(BaseModel):
         verbose_name = _("Risk Rule")
         verbose_name_plural = _("Risk Rules")
         ordering = ['-priority', 'created_at']
+
+
+# سایر مدل‌های Risk: RiskEvent, RiskMetric, RiskAlert و غیره...
+
 
 
 class RiskEvent(BaseModel):

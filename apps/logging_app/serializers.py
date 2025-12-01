@@ -2,36 +2,36 @@
 from rest_framework import serializers
 from .models import SystemLog, SystemEvent, NotificationChannel, Alert, UserNotificationPreference, AuditLog
 
+
 class SystemLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemLog
         fields = '__all__'
+
 
 class SystemEventSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemEvent
         fields = '__all__'
 
+
 class NotificationChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationChannel
         fields = '__all__'
 
+
 class AlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alert
         fields = '__all__'
-        read_only_fields = ('user',)
 
-    def create(self, validated_data):
-        user = self.context['request'].user
-        validated_data['user'] = user
-        return super().create(validated_data)
 
 class UserNotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserNotificationPreference
         fields = '__all__'
+
 
 class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:

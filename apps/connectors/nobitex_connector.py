@@ -1,189 +1,121 @@
+# # apps/connectors/nobitex_connector.py
+# import asyncio
+# import json
+# import websockets
+# from .connector_interface import IExchangeConnector
+# from apps.market_data.agents import MarketDataAgent
+#
+#
+# class NobitexConnector(IExchangeConnector):
+#     """
+#     کانکتور واقعی برای صرافی نوبیتکس.
+#     """
+#     def __init__(self, config, credential, agent: MarketDataAgent):
+#         self.config = config
+#         self.credential = credential
+#         self.agent = agent
+#         self.ws_url = config.data_source.ws_url
+#         self.websocket = None
+#         self.is_connected = False
+#
+#     async def connect(self):
+#         if self.is_connected:
+#             return
+#         try:
+#             self.websocket = await websockets.connect(self.ws_url)
+#             self.is_connected = True
+#             # اشتراک در کانال‌های مورد نیاز
+#             for symbol in self.config.params.get('symbols', []):
+#                 sub_msg = {
+#                     "method": "subscribe",
+#                     "streams": [f"{symbol.lower()}/ticker"]
+#                 }
+#                 await self.websocket.send(json.dumps(sub_msg))
+#         except Exception as e:
+#             raise e
+#
+#     async def disconnect(self):
+#         if self.websocket:
+#             await self.websocket.close()
+#         self.is_connected = False
+#
+#     async def listen(self):
+#         while self.is_connected:
+#             try:
+#                 message = await self.websocket.recv()
+#                 data = json.loads(message)
+#                 yield data
+#             except websockets.exceptions.ConnectionClosed:
+#                 self.is_connected = False
+#                 break
+#
+#     def get_historical_data(self, symbol: str, timeframe: str, start: str, end: str):
+#         # پیاده‌سازی برای گرفتن داده تاریخی از Nobitex REST API
+#         pass
+#
+#     def subscribe(self, symbol: str, data_type: str):
+#         # پیاده‌سازی اشتراک
+#         pass
+#
+#     def unsubscribe(self, symbol: str, data_type: str):
+#         # پیاده‌سازی لغو اشتراک
+#         pass
+
+#############################################
+
 # apps/connectors/nobitex_connector.py
-import requests
-import time
-from datetime import datetime
-from .base import ExchangeConnector
-from .registry import register_connector
-import logging
+from .connector_interface import IExchangeConnector
+import aiohttp
+import asyncio
+import json
 
-logger = logging.getLogger(__name__)
 
-@register_connector('NOBITEX') # ثبت کانکتور با کد صرافی
-class NobitexConnector(ExchangeConnector):
-    """
-    پیاده‌سازی کامل اتصال‌دهنده برای صرافی نوبیتکس.
-    این کانکتور با استفاده از JWT Token برای احراز هویت کار می‌کند.
-    """
-    def __init__(self, api_key: str, api_secret: str, exchange_account_id: int, **kwargs):
-        super().__init__(api_key, api_secret, exchange_account_id, **kwargs)
-        # api_key در نوبیتکس معمولاً یک token است، نه یک کلید
-        # api_secret ممکن است یک کلید باشد یا خالی (بسته به نحوه تولید token)
-        self.jwt_token = api_key  # api_key در اینجا token است
-        self.api_base_url = self.exchange_account.exchange.connector_config.api_base_url
-        if self.exchange_account.exchange.connector_config.is_sandbox_mode_default:
-            self.api_base_url = self.exchange_account.exchange.connector_config.sandbox_api_base_url
-        self.session = requests.Session()
+class NobitexConnector(IExchangeConnector):
+    def __init__(self, config, credential, agent):
+        self.config = config
+        self.credential = credential
+        self.agent = agent
+        self.ws_url = config.data_source.ws_url
+        self.token = credential.api_key_encrypted  # در Nobitex ممکن است JWT Token باشد
+        self.session = aiohttp.ClientSession()
         self.session.headers.update({
+            'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.jwt_token}'
         })
+        self.is_connected = False
 
-    def connect(self) -> bool:
-        try:
-            # تست اتصال با یک درخواست ساده (مثلاً دریافت پروفایل)
-            url = f"{self.api_base_url}/users/profile"
-            response = self.session.get(url)
-            if response.status_code == 200:
-                logger.info("Successfully connected to Nobitex.")
-                return True
-            else:
-                logger.error(f"Failed to connect to Nobitex: {response.status_code} - {response.text}")
-                return False
-        except Exception as e:
-            logger.error(f"Exception during Nobitex connection: {e}")
-            return False
+    async def connect(self):
+        # اتصال به WebSocket نوبیتکس
+        # مثال: wss://pubstream.nobitex.ir/
+        # ارسال پیام اشتراک (subscribe) بر اساس کانفیگ
+        pass
 
-    def disconnect(self):
-        self.session = None
+    async def disconnect(self):
+        if self.session:
+            await self.session.close()
+        self.is_connected = False
 
-    def is_connected(self) -> bool:
-        return self.session is not None
+    async def listen(self):
+        # حلقه اصلی دریافت پیام از WebSocket
+        # مثال:
+        # async with websockets.connect(self.ws_url) as websocket:
+        #     subscribe_msg = {"op": "subscribe", "args": ["market.btc-usdt.ticker"]}
+        #     await websocket.send(json.dumps(subscribe_msg))
+        #     while self.is_connected:
+        #         message = await websocket.recv()
+        #         yield json.loads(message)
+        pass
 
-    def get_balance(self, currency: str = None) -> dict:
-        try:
-            self._handle_rate_limit('/users/wallets/list')
-            url = f"{self.api_base_url}/users/wallets/list"
-            payload = {'currency': currency} if currency else {}
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('get_balance', '/users/wallets/list', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_balance', '/users/wallets/list', {'currency': currency}, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
+    def get_historical_data(self, symbol: str, timeframe: str, start: str, end: str):
+        # فراخوانی API تاریخی نوبیتکس
+        # مثال: /v2/orderbook.json?symbol=BTCIRT
+        pass
 
-    def place_order(self, symbol: str, side: str, order_type: str, quantity: float, price: float = None, **kwargs):
-        try:
-            self._handle_rate_limit('/market/orders/add')
-            url = f"{self.api_base_url}/market/orders/add"
-            # تبدیل side و type به فرمت مورد نیاز نوبیتکس
-            side_nobitex = 'buy' if side.upper() == 'BUY' else 'sell'
-            type_nobitex = 'limit' if order_type.upper() == 'LIMIT' else 'market'
-            payload = {
-                'symbol': symbol.lower(), # نوبیتکس نماد را با حروف کوچک می‌خواهد
-                'side': side_nobitex,
-                'type': type_nobitex,
-                'amount': str(quantity),
-            }
-            if price:
-                payload['price'] = str(price)
-            # اضافه کردن سایر پارامترهای kwargs
-            payload.update(kwargs)
+    def subscribe(self, symbol: str, data_type: str):
+        # ارسال پیام اشتراک به WebSocket
+        # مثلاً: {"op": "subscribe", "args": [f"market.{symbol}.ticker"]}
+        pass
 
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('place_order', '/market/orders/add', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('place_order', '/market/orders/add', {'symbol': symbol, 'side': side, 'type': order_type, 'amount': quantity, 'price': price}, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    def cancel_order(self, order_id: str, symbol: str, **kwargs):
-        try:
-            self._handle_rate_limit('/market/orders/cancel')
-            url = f"{self.api_base_url}/market/orders/cancel"
-            payload = {'order_id': order_id, 'symbol': symbol.lower()}
-            payload.update(kwargs)
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('cancel_order', '/market/orders/cancel', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('cancel_order', '/market/orders/cancel', {'order_id': order_id, 'symbol': symbol}, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    def get_order_status(self, order_id: str, symbol: str, **kwargs):
-        try:
-            self._handle_rate_limit('/market/orders/status')
-            url = f"{self.api_base_url}/market/orders/status"
-            # نوبیتکس وضعیت سفارش را با ارسال order_id در بدنه می‌دهد
-            payload = {'order_ids': [order_id]} # نوبیتکس از آرایه order_ids استفاده می‌کند
-            payload.update(kwargs)
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            # Nobitex یک آرایه برمی‌گرداند، ما فقط اولین نتیجه را نیاز داریم
-            order_status = data.get('orders', [{}])[0] if data.get('orders') else {}
-            self._log_interaction('get_order_status', '/market/orders/status', payload, order_status, response.status_code)
-            return order_status
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_order_status', '/market/orders/status', {'order_ids': [order_id]}, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    # متدهای بیشتر نوبیتکس:
-
-    def get_open_orders(self, symbol: str = None) -> dict:
-        try:
-            self._handle_rate_limit('/market/orders/list')
-            url = f"{self.api_base_url}/market/orders/list"
-            payload = {'status': 'pending'} # فقط سفارش‌های باز
-            if symbol:
-                payload['symbol'] = symbol.lower()
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('get_open_orders', '/market/orders/list', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_open_orders', '/market/orders/list', payload, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    def get_trades_history(self, symbol: str = None, limit: int = 100) -> dict:
-        try:
-            self._handle_rate_limit('/market/trades/list')
-            url = f"{self.api_base_url}/market/trades/list"
-            payload = {'limit': limit}
-            if symbol:
-                payload['symbol'] = symbol.lower()
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('get_trades_history', '/market/trades/list', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_trades_history', '/market/trades/list', payload, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    def get_market_depth(self, symbol: str) -> dict:
-        try:
-            self._handle_rate_limit('/market/depth')
-            url = f"{self.api_base_url}/market/depth"
-            payload = {'symbol': symbol.lower()}
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('get_market_depth', '/market/depth', payload, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_market_depth', '/market/depth', payload, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    def get_server_time(self) -> dict:
-        try:
-            # این درخواست معمولاً نیاز به احراز هویت ندارد
-            url = f"{self.api_base_url}/public/time"
-            response = self.session.get(url)
-            response.raise_for_status()
-            data = response.json()
-            self._log_interaction('get_server_time', '/public/time', {}, data, response.status_code)
-            return data
-        except requests.exceptions.RequestException as e:
-            self._log_interaction('get_server_time', '/public/time', {}, {'error': str(e)}, error_message=str(e))
-            return {'error': str(e)}
-
-    # سایر متدها...
-    # به عنوان مثال: withdraw, deposit, get_deposit_address و غیره
-    # باید بر اساس مستندات نوبیتکس پیاده‌سازی شوند.
+    def unsubscribe(self, symbol: str, data_type: str):
+        # ارسال پیام لغو اشتراک
+        pass

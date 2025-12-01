@@ -1,13 +1,18 @@
 # apps/agents/views.py
 from rest_framework import viewsets, permissions
-from .models import AgentType, Agent, AgentInstance, AgentConfig, AgentStatus, AgentMessage, AgentLog, AgentMetric
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework import status
+from .models import (
+    AgentType, Agent, AgentInstance, AgentConfig, AgentStatus, AgentMessage, AgentLog, AgentMetric
+)
 from .serializers import (
     AgentTypeSerializer, AgentSerializer, AgentInstanceSerializer, AgentConfigSerializer,
     AgentStatusSerializer, AgentMessageSerializer, AgentLogSerializer, AgentMetricSerializer
 )
 from apps.core.views import SecureModelViewSet
 
-class AgentTypeViewSet(viewsets.ModelViewSet):  # ← اینجا باید تعریف شود
+class AgentTypeViewSet(viewsets.ModelViewSet):  # ✅ اضافه شد
     queryset = AgentType.objects.all()
     serializer_class = AgentTypeSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
@@ -45,3 +50,30 @@ class AgentMetricViewSet(viewsets.ModelViewSet):  # بدون owner
     queryset = AgentMetric.objects.all()
     serializer_class = AgentMetricSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+# API Views برای شروع/توقف
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def start_agent(request, agent_id):
+    # منطق شروع عامل
+    try:
+        agent = Agent.objects.get(id=agent_id, owner=request.user)
+        # فرض بر این است که تسک Celery وجود دارد
+        from .tasks import run_agent_task
+        run_agent_task.delay(agent.id)
+        return Response({'status': 'started'}, status=status.HTTP_200_OK)
+    except Agent.DoesNotExist:
+        return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def stop_agent(request, agent_id):
+    # منطق توقف عامل
+    try:
+        agent = Agent.objects.get(id=agent_id, owner=request.user)
+        agent.is_active = False
+        agent.save()
+        return Response({'status': 'stopped'}, status=status.HTTP_200_OK)
+    except Agent.DoesNotExist:
+        return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+
