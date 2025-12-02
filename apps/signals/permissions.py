@@ -1,0 +1,9 @@
+# apps/signals/permissions.py
+from rest_framework import permissions
+
+
+class IsSignalOwnerOrAdmin(permissions.BasePermission):
+    """دسترسی فقط برای مالک یا ادمین"""
+
+    def has_object_permission(self, request, view, obj):
+        return obj.user == request.user or request.user.is_staff

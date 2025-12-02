@@ -1,7 +1,7 @@
 # apps/bots/models.py
 from django.db import models
-from django.conf import settings
 from django.utils.translation import gettext_lazy as _
+from django.conf import settings
 from apps.core.models import BaseModel
 
 
@@ -59,7 +59,8 @@ class Bot(BaseModel):
         verbose_name=_("Trading Instrument")
     )
 
-    bot_type = models.CharField(max_length=16, choices=BOT_TYPE_CHOICES, default="LONG_SHORT", verbose_name=_("Bot Type"))
+    bot_type = models.CharField(max_length=16, choices=BOT_TYPE_CHOICES, default="LONG_SHORT",
+                                verbose_name=_("Bot Type"))
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="INACTIVE", verbose_name=_("Status"))
     mode = models.CharField(max_length=16, choices=MODE_CHOICES, default="PAPER", verbose_name=_("Trading Mode"))
     control_type = models.CharField(
@@ -67,7 +68,7 @@ class Bot(BaseModel):
         choices=CONTROL_CHOICES,
         default="MANUAL",
         verbose_name=_("Control Type"),
-        help_text=_("How the bot is started/stopped.")
+        help_text=_("How is bot started/stopped.")
     )
 
     # اتصال به پروفایل ریسک (بسیار مهم)
@@ -81,21 +82,53 @@ class Bot(BaseModel):
     )
 
     # تنظیمات کلی ربات
-    max_concurrent_trades = models.IntegerField(default=1, verbose_name=_("Max Concurrent Trades"), help_text=_("Maximum number of open trades/positions."))
-    max_position_size = models.DecimalField(max_digits=32, decimal_places=8, null=True, blank=True, verbose_name=_("Max Position Size"))
-    max_total_capital = models.DecimalField(max_digits=32, decimal_places=8, null=True, blank=True, verbose_name=_("Max Total Capital to Use"))
-    leverage = models.DecimalField(max_digits=5, decimal_places=2, default=1, verbose_name=_("Leverage"))
+    max_concurrent_trades = models.IntegerField(
+        default=1,
+        verbose_name=_("Max Concurrent Trades"),
+        help_text=_("Maximum number of open trades/positions.")
+    )
+    max_position_size = models.DecimalField(
+        max_digits=32,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        verbose_name=_("Max Position Size")
+    )
+    max_total_capital = models.DecimalField(
+        max_digits=32,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        verbose_name=_("Max Total Capital to Use")
+    )
+    leverage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=1,
+        verbose_name=_("Leverage")
+    )
     desired_profit_target_percent = models.DecimalField(
-        max_digits=8, decimal_places=4, null=True, blank=True, verbose_name=_("Desired Profit Target (%)"),
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        verbose_name=_("Desired Profit Target (%)"),
         help_text=_("Target profit in percentage (e.g., 2.50 for 2.5%).")
     )
     max_allowed_loss_percent = models.DecimalField(
-        max_digits=8, decimal_places=4, null=True, blank=True, verbose_name=_("Max Allowed Loss (%)"),
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        verbose_name=_("Max Allowed Loss (%)"),
         help_text=_("Maximum allowed loss in percentage.")
     )
     # تنظیمات حد سود/ضرر و تریلینگ استاپ
-    trailing_stop_config = models.JSONField(default=dict, blank=True, verbose_name=_("Trailing Stop Config (JSON)"))
-
+    trailing_stop_config = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Trailing Stop Config (JSON)")
+    )
     # تنظیمات زمان‌بندی و اجرا
     schedule_config = models.JSONField(
         default=dict,
@@ -106,17 +139,36 @@ class Bot(BaseModel):
 
     # تنظیمات مربوط به حالت Paper Trading
     paper_trading_balance = models.DecimalField(
-        max_digits=32, decimal_places=8, default=10000, verbose_name=_("Paper Trading Balance"),
+        max_digits=32,
+        decimal_places=8,
+        default=10000,
+        verbose_name=_("Paper Trading Balance"),
         help_text=_("Starting balance for paper trading mode.")
     )
 
     # فیلدهای مربوط به دیباگ و مانیتورینگ
-    last_error_log = models.TextField(blank=True, verbose_name=_("Last Error Log"), help_text=_("Stores the last error message for debugging."))
-    last_heartbeat_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Heartbeat At"), help_text=_("Last time the bot sent a heartbeat signal."))
-    is_paused_by_system = models.BooleanField(default=False, verbose_name=_("Is Paused by System"))
+    last_error_log = models.TextField(
+        blank=True,
+        verbose_name=_("Last Error Log"),
+        help_text=_("Stores last error message for debugging.")
+    )
+    last_heartbeat_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Last Heartbeat At"),
+        help_text=_("Last time bot sent a heartbeat signal.")
+    )
+    is_paused_by_system = models.BooleanField(
+        default=False,
+        verbose_name=_("Is Paused by System")
+    )
 
     # معیارهای عملکرد کلی (برای نمایش سریع)
-    performance_metrics = models.JSONField(default=dict, blank=True, verbose_name=_("Performance Metrics (JSON)"))
+    performance_metrics = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Performance Metrics (JSON)")
+    )
 
     # فیلدهای timestamp از BaseModel ارث می‌بریم: created_at, updated_at
 
@@ -147,20 +199,33 @@ class BotStrategyConfig(BaseModel):
         verbose_name=_("Strategy Version")
     )
 
-    weight = models.FloatField(default=1.0, verbose_name=_("Weight"), help_text=_("Weight of this strategy in the bot's final decision."))
-    priority = models.IntegerField(default=0, verbose_name=_("Priority"))
-    is_primary = models.BooleanField(default=False, verbose_name=_("Is Primary"), help_text=_("Mark if this is the primary strategy for the bot."))
-    is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
-
-    # اجازه به کاربر برای بازنویسی پارامترهای استراتژی فقط برای این ربات خاص
+    weight = models.FloatField(
+        default=1.0,
+        verbose_name=_("Weight"),
+        help_text=_("Weight of this strategy in the bot's final decision.")
+    )
+    priority = models.IntegerField(
+        default=0,
+        verbose_name=_("Priority"),
+        help_text=_("Higher priority strategies are evaluated first.")
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Is Active")
+    )
     parameters_override = models.JSONField(
         default=dict,
         blank=True,
         verbose_name=_("Parameters Override (JSON)"),
         help_text=_("Override default strategy parameters for this specific bot.")
     )
+
     # نتیجه آخرین اجرای استراتژی در این ربات
-    last_execution_result = models.JSONField(default=dict, blank=True, verbose_name=_("Last Execution Result (JSON)"))
+    last_execution_result = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Last Execution Result (JSON)")
+    )
 
     # فیلدهای timestamp از BaseModel ارث می‌بریم: created_at, updated_at
 
@@ -197,10 +262,18 @@ class BotLog(BaseModel):
         related_name="logs",
         verbose_name=_("Bot")
     )
-    event_type = models.CharField(max_length=32, choices=EVENT_TYPE_CHOICES, verbose_name=_("Event Type"))
+    event_type = models.CharField(
+        max_length=32,
+        choices=EVENT_TYPE_CHOICES,
+        verbose_name=_("Event Type")
+    )
     message = models.TextField(verbose_name=_("Log Message"))
     # اطلاعات بیشتر در مورد رویداد (مثلاً جزئیات سفارش یا سیگنال)
-    details = models.JSONField(default=dict, blank=True, verbose_name=_("Details (JSON)"))
+    details = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Details (JSON)")
+    )
 
     # فیلدهای timestamp از BaseModel ارث می‌بریم: created_at, updated_at
 
@@ -209,7 +282,7 @@ class BotLog(BaseModel):
         verbose_name_plural = _("Bot Logs")
         # ممکن است بخواهید بر اساس bot و زمان جستجو کنید
         indexes = [
-            models.Index(fields=['bot', '-created_at']), # برای نمایش معکوس تاریخچه
+            models.Index(fields=['bot', '-created_at']),  # برای نمایش معکوس تاریخچه
         ]
 
     def __str__(self):
@@ -230,28 +303,73 @@ class BotPerformanceSnapshot(BaseModel):
     period_end = models.DateTimeField(verbose_name=_("Period End"))
 
     # معیارهای عملکرد
-    total_pnl = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total P&L"))
-    total_pnl_percentage = models.DecimalField(max_digits=8, decimal_places=4, default=0, verbose_name=_("Total P&L (%)"))
-    realized_pnl = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Realized P&L"))
-    unrealized_pnl = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Unrealized P&L"))
-    max_drawdown = models.DecimalField(max_digits=8, decimal_places=4, default=0, verbose_name=_("Max Drawdown (%)"))
-    sharpe_ratio = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True, verbose_name=_("Sharpe Ratio"))
+    total_pnl = models.DecimalField(
+        max_digits=32,
+        decimal_places=8,
+        default=0,
+        verbose_name=_("Total P&L")
+    )
+    total_pnl_percentage = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        default=0,
+        verbose_name=_("Total P&L (%)")
+    )
+    realized_pnl = models.DecimalField(
+        max_digits=32,
+        decimal_places=8,
+        default=0,
+        verbose_name=_("Realized P&L")
+    )
+    unrealized_pnl = models.DecimalField(
+        max_digits=32,
+        decimal_places=8,
+        default=0,
+        verbose_name=_("Unrealized P&L")
+    )
+    max_drawdown = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        default=0,
+        verbose_name=_("Max Drawdown (%)")
+    )
+    sharpe_ratio = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        verbose_name=_("Sharpe Ratio")
+    )
     total_trades = models.IntegerField(default=0, verbose_name=_("Total Trades"))
-    win_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name=_("Win Rate (%)"))
-
-    # سایر معیارهای قابل نمایش
-    avg_trade_duration = models.DurationField(null=True, blank=True, verbose_name=_("Average Trade Duration"))
-    profit_factor = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True, verbose_name=_("Profit Factor"))
+    win_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("Win Rate (%)")
+    )
+    avg_trade_duration = models.DurationField(
+        null=True,
+        blank=True,
+        verbose_name=_("Average Trade Duration")
+    )
+    profit_factor = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        verbose_name=_("Profit Factor")
+    )
 
     # فیلدهای timestamp از BaseModel ارث می‌بریم: created_at, updated_at
 
     class Meta:
         verbose_name = _("Bot Performance Snapshot")
         verbose_name_plural = _("Bot Performance Snapshots")
+        # ممکن است بخواهید بر اساس bot و زمان جستجو کنید
         indexes = [
-            models.Index(fields=['bot', '-period_end']), # برای نمایش معکوس تاریخچه
+            models.Index(fields=['bot', '-period_end']),  # برای نمایش معکوس تاریخچه
         ]
 
     def __str__(self):
         return f"{self.bot.name} Performance ({self.period_start} to {self.period_end})"
-
