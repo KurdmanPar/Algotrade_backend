@@ -1,8 +1,12 @@
 # apps/exchanges/models.py
+
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from apps.core.models import BaseModel
+from apps.core.encryption import encrypt_field, decrypt_field # فرض بر این است که این ماژول وجود دارد
+from apps.bots.models import TradingBot # فرض بر این است که اپلیکیشن bots وجود دارد
 
 
 class Exchange(BaseModel):
@@ -56,8 +60,9 @@ class ExchangeAccount(BaseModel):
     label = models.CharField(max_length=128, blank=True, verbose_name=_("Account Label"))  # e.g. "My Main Binance Account"
 
     # امنیت: ذخیره رمزنگاری شده کلیدها
-    api_key_encrypted = models.TextField(verbose_name=_("Encrypted API Key"))
-    api_secret_encrypted = models.TextField(verbose_name=_("Encrypted API Secret"))
+    # این فیلدها را به عنوان فیلدهای خصوصی در نظر می‌گیریم
+    _api_key_encrypted = models.TextField(verbose_name=_("Encrypted API Key"))
+    _api_secret_encrypted = models.TextField(verbose_name=_("Encrypted API Secret"))
     # IV یا Nonce مورد نیاز برای رمزنگاری (اگر الگوریتم نیاز داشته باشد)
     encrypted_key_iv = models.CharField(max_length=255, blank=True, verbose_name=_("Encryption IV/Nonce"))
     extra_credentials = models.JSONField(default=dict, blank=True, verbose_name=_("Extra Credentials (JSON)"))
@@ -68,6 +73,16 @@ class ExchangeAccount(BaseModel):
     # اطلاعات امنیتی
     last_login_ip = models.GenericIPAddressField(null=True, blank=True, verbose_name=_("Last Login IP"))
     created_ip = models.GenericIPAddressField(null=True, blank=True, verbose_name=_("Account Created IP"))
+    # اطلاعات بروزرسانی شده
+    account_info = models.JSONField(default=dict, blank=True, verbose_name=_("Account Info (JSON)")) # اطلاعات کامل حساب (مانند محدودیت‌ها، سطح کاربری و غیره)
+    trading_permissions = models.JSONField(default=dict, blank=True, verbose_name=_("Trading Permissions (JSON)")) # مجوزهای معاملاتی
+    # ارتباط با بات‌ها
+    linked_bots = models.ManyToManyField(
+        TradingBot,
+        related_name="exchange_accounts",
+        blank=True,
+        verbose_name=_("Linked Bots")
+    )
 
     class Meta:
         verbose_name = _("Exchange Account")
@@ -76,6 +91,31 @@ class ExchangeAccount(BaseModel):
 
     def __str__(self):
         return f"{self.user.email} - {self.exchange.name} ({self.label or 'Default'})"
+
+    # متدهای کمکی برای کار با کلیدهای رمزنگاری شده
+    @property
+    def api_key(self):
+        """Decrypts and returns the API key."""
+        return decrypt_field(self._api_key_encrypted, self.encrypted_key_iv)
+
+    @api_key.setter
+    def api_key(self, value):
+        """Encrypts and stores the API key."""
+        encrypted_val, iv = encrypt_field(value)
+        self._api_key_encrypted = encrypted_val
+        self.encrypted_key_iv = iv # فقط در صورت نیاز به IV جداگانه برای هر کلید
+
+    @property
+    def api_secret(self):
+        """Decrypts and returns the API secret."""
+        return decrypt_field(self._api_secret_encrypted, self.encrypted_key_iv)
+
+    @api_secret.setter
+    def api_secret(self, value):
+        """Encrypts and stores the API secret."""
+        encrypted_val, iv = encrypt_field(value)
+        self._api_secret_encrypted = encrypted_val
+        # IV ممکن است یکی برای هر جفت کلید/مخفی باشد، یا جداگانه ذخیره شود، بسته به پیاده‌سازی
 
 
 class Wallet(BaseModel):
@@ -194,3 +234,117 @@ class AggregatedAssetPosition(BaseModel):
 
     def __str__(self):
         return f"{self.asset_symbol} in Portfolio of {self.aggregated_portfolio.user.email}"
+
+# --- اضافه شدن مدل‌های جدید ---
+class OrderHistory(BaseModel):
+    """
+    تاریخچه معاملات (سفارشات) انجام شده از طریق حساب‌های صرافی.
+    """
+    STATUS_CHOICES = [
+        ('NEW', _('New')),
+        ('PARTIALLY_FILLED', _('Partially Filled')),
+        ('FILLED', _('Filled')),
+        ('CANCELED', _('Canceled')),
+        ('PENDING_CANCEL', _('Pending Cancel')),
+        ('REJECTED', _('Rejected')),
+        ('EXPIRED', _('Expired')),
+    ]
+    SIDE_CHOICES = [
+        ('BUY', _('Buy')),
+        ('SELL', _('Sell')),
+    ]
+    ORDER_TYPE_CHOICES = [
+        ('LIMIT', _('Limit')),
+        ('MARKET', _('Market')),
+        ('STOP_LOSS', _('Stop Loss')),
+        ('TAKE_PROFIT', _('Take Profit')),
+        # سایر نوع‌های سفارش صرافی
+    ]
+    exchange_account = models.ForeignKey(
+        ExchangeAccount,
+        on_delete=models.CASCADE,
+        related_name="order_history",
+        verbose_name=_("Exchange Account")
+    )
+    order_id = models.CharField(max_length=255, verbose_name=_("Exchange Order ID")) # شناسه منحصر به فرد سفارش در صرافی
+    symbol = models.CharField(max_length=32, verbose_name=_("Symbol"))
+    side = models.CharField(max_length=10, choices=SIDE_CHOICES, verbose_name=_("Side"))
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPE_CHOICES, verbose_name=_("Order Type"))
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, verbose_name=_("Status"))
+    price = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Price"))
+    quantity = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Quantity"))
+    executed_quantity = models.DecimalField(max_digits=32, decimal_places=16, default=0, verbose_name=_("Executed Quantity"))
+    cumulative_quote_qty = models.DecimalField(max_digits=32, decimal_places=16, default=0, verbose_name=_("Cumulative Quote Quantity"))
+    time_placed = models.DateTimeField(verbose_name=_("Time Placed"))
+    time_updated = models.DateTimeField(verbose_name=_("Time Updated"))
+    commission = models.DecimalField(max_digits=32, decimal_places=16, default=0, verbose_name=_("Commission"))
+    commission_asset = models.CharField(max_length=32, verbose_name=_("Commission Asset"))
+    # ارتباط با بات (اختیاری)
+    trading_bot = models.ForeignKey(
+        TradingBot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="executed_orders",
+        verbose_name=_("Trading Bot")
+    )
+
+    class Meta:
+        verbose_name = _("Order History")
+        verbose_name_plural = _("Order Histories")
+        unique_together = ("exchange_account", "order_id") # هر سفارش در یک حساب صرافی منحصر به فرد است
+        indexes = [
+            models.Index(fields=['exchange_account', 'time_placed']), # برای جستجوی تاریخچه
+            models.Index(fields=['symbol', 'time_placed']), # برای تحلیل نماد
+        ]
+
+    def __str__(self):
+        return f"{self.side} {self.quantity} {self.symbol} ({self.status}) on {self.exchange_account}"
+
+
+class MarketDataCandle(BaseModel):
+    """
+    مدل ذخیره‌سازی داده‌های کندل (OHLCV) از صرافی‌ها برای بک تست و تحلیل.
+    """
+    INTERVAL_CHOICES = [
+        ('1m', _('1 Minute')),
+        ('5m', _('5 Minutes')),
+        ('15m', _('15 Minutes')),
+        ('30m', _('30 Minutes')),
+        ('1h', _('1 Hour')),
+        ('4h', _('4 Hours')),
+        ('1d', _('1 Day')),
+        ('1w', _('1 Week')),
+        ('1M', _('1 Month')),
+    ]
+    exchange = models.ForeignKey(
+        Exchange,
+        on_delete=models.CASCADE,
+        related_name="candle_data",
+        verbose_name=_("Exchange")
+    )
+    symbol = models.CharField(max_length=32, verbose_name=_("Symbol"))
+    interval = models.CharField(max_length=10, choices=INTERVAL_CHOICES, verbose_name=_("Interval"))
+    open_time = models.DateTimeField(verbose_name=_("Open Time"))
+    open = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Open Price"))
+    high = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("High Price"))
+    low = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Low Price"))
+    close = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Close Price"))
+    volume = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Volume"))
+    close_time = models.DateTimeField(verbose_name=_("Close Time"))
+    quote_asset_volume = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Quote Asset Volume"))
+    number_of_trades = models.IntegerField(verbose_name=_("Number of Trades"))
+    taker_buy_base_asset_volume = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Taker Buy Base Asset Volume"))
+    taker_buy_quote_asset_volume = models.DecimalField(max_digits=32, decimal_places=16, verbose_name=_("Taker Buy Quote Asset Volume"))
+
+    class Meta:
+        verbose_name = _("Market Data Candle")
+        verbose_name_plural = _("Market Data Candles")
+        unique_together = ("exchange", "symbol", "interval", "open_time") # یک کندل منحصر به فرد
+        indexes = [
+            models.Index(fields=['exchange', 'symbol', 'interval', 'open_time']), # برای جستجوی کارآمد
+            models.Index(fields=['symbol', 'open_time']), # برای تحلیل نماد
+        ]
+
+    def __str__(self):
+        return f"{self.symbol} - {self.interval} - {self.open_time}"

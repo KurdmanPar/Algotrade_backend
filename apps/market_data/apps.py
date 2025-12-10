@@ -1,6 +1,35 @@
-from django.apps import AppConfig
+# apps/market_data/apps.py
 
+from django.apps import AppConfig
+from django.utils.translation import gettext_lazy as _
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MarketDataConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.market_data'
+    verbose_name = _('Market Data')
+
+    def ready(self):
+        """
+        Runs when the Django application starts up.
+        Imports and connects the signal handlers for this app.
+        This is the recommended place to register signals.
+        """
+        try:
+            # --- ثبت سیگنال‌ها ---
+            import apps.market_data.signals  # noqa F401
+            logger.info("Signals for 'market_data' app loaded successfully.")
+
+            # --- سایر کارهای مربوط به شروع اپلیکیشن (اختیاری) ---
+            # مثلاً شروع یک تاسک Celery خاص هنگام راه‌اندازی
+            # از آنجا که ممکن است نیاز به اطمینان از وجود مدل‌ها یا سرویس‌های دیگر باشد،
+            # معمولاً کارهای پیچیده را در جای دیگری انجام می‌دهند (مثلاً در Celery Beat یا یک نما).
+            # فقط برای موارد ساده و اولیه مناسب است.
+            # logger.info("Custom startup logic for 'market_data' app executed.")
+
+        except ImportError as e:
+            logger.error(f"Failed to load signals for 'market_data' app: {e}")
+            # بسته به نیاز، می‌توانید خطایی را دوباره بالا بیاورید یا فقط لاگ کنید
+            # raise e
