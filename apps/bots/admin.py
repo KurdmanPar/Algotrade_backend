@@ -35,8 +35,8 @@ class BotAdmin(admin.ModelAdmin):
 
 @admin.register(BotStrategyConfig)
 class BotStrategyConfigAdmin(admin.ModelAdmin):
-    list_display = ('bot', 'strategy_version', 'is_primary', 'weight', 'is_active')
-    list_filter = ('is_primary', 'is_active')
+    list_display = ('bot', 'strategy_version', 'primary_strategy', 'weight', 'is_active')
+    list_filter = ('primary_strategy', 'is_active')
     search_fields = ('bot__name', 'strategy_version__strategy__name')
     raw_id_fields = ('bot', 'strategy_version')
     readonly_fields = ('created_at', 'updated_at')

@@ -1,53 +1,40 @@
 # tests/conftest.py
+
 import pytest
-from tests.factories import *
+from django.contrib.auth import get_user_model
+from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
-@pytest.fixture(scope='session')
-def django_db_setup():
-    """Setup database for tests."""
-    pass
+# Import all factories to make them available to pytest-factoryboy
+from tests.factories import CustomUserFactory, UserProfileFactory
 
+# This fixture provides a Django test client for making API requests.
 @pytest.fixture
-def user(db):
-    """Create a test user."""
-    return UserFactory()
+def api_client():
+    return APIClient()
 
+# This fixture provides an authenticated API client.
+# It creates a user and logs them in, returning the client with auth headers set.
 @pytest.fixture
-def agent_type(db):
-    """Create a test agent type."""
-    return AgentTypeFactory()
+def authenticated_api_client(api_client, CustomUserFactory):
+    user = CustomUserFactory()
+    refresh = RefreshToken.for_user(user)
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}'
+    )
+    return api_client, user
 
+# This fixture provides an authenticated superuser client.
 @pytest.fixture
-def agent(db, agent_type):
-    """Create a test agent."""
-    return AgentFactory(type=agent_type)
+def authenticated_superuser_client(api_client, CustomUserFactory):
+    superuser = CustomUserFactory(is_superuser=True, is_staff=True)
+    refresh = RefreshToken.for_user(superuser)
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}'
+    )
+    return api_client, superuser
 
+# A simple fixture to get the custom user model
 @pytest.fixture
-def instrument_group(db):
-    """Create a test instrument group."""
-    return InstrumentGroupFactory()
-
-@pytest.fixture
-def instrument(db, instrument_group):
-    """Create a test instrument."""
-    return InstrumentFactory(group=instrument_group)
-
-@pytest.fixture
-def indicator_group(db):
-    """Create a test indicator group."""
-    return IndicatorGroupFactory()
-
-@pytest.fixture
-def indicator(db, indicator_group):
-    """Create a test indicator."""
-    return IndicatorFactory(group=indicator_group)
-
-@pytest.fixture
-def strategy(db, user):
-    """Create a test strategy."""
-    return StrategyFactory(owner=user)
-
-@pytest.fixture
-def strategy_version(db, strategy):
-    """Create a test strategy version."""
-    return StrategyVersionFactory(strategy=strategy)
+def User():
+    return get_user_model()

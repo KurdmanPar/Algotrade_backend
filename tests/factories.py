@@ -1,133 +1,96 @@
 # tests/factories.py
+
 import factory
-from django.contrib.auth import get_user_model
-from apps.agents.models import Agent, AgentType, AgentConfig, AgentStatus
-from apps.instruments.models import Instrument, InstrumentGroup, Indicator, IndicatorGroup
-from apps.strategies.models import Strategy, StrategyVersion
+from django.utils import timezone
+from datetime import timedelta
+from apps.accounts.models import CustomUser, UserProfile, UserSession, UserAPIKey
 
-User = get_user_model()
-
-
-class UserFactory(factory.django.DjangoModelFactory):
+class CustomUserFactory(factory.django.DjangoModelFactory):
+    """
+    Factory for creating CustomUser instances.
+    """
     class Meta:
-        model = User
+        model = CustomUser
 
-    email = factory.Faker('email')
-    username = factory.Faker('user_name')
+    email = factory.Sequence(lambda n: f"user{n}@example.com")
+    username_display = factory.Faker('user_name')
+    user_type = 'individual'
+    is_verified = True
+    is_active = True
+    is_demo = True
+
+    # Traits are a powerful feature to create variations of the object
+    @factory.post_generation
+    def password(obj, create, extracted, **kwargs):
+        password = extracted or factory.Faker('password')
+        obj.set_password(password)
+
+    class Params:
+        # Trait to create a superuser
+        superuser = factory.Trait(
+            is_staff=True,
+            is_superuser=True,
+        )
+        # Trait to create a locked user
+        locked = factory.Trait(
+            is_locked=True,
+            failed_login_attempts=5,
+            locked_until=timezone.now() + timedelta(minutes=30)
+        )
+        # Trait to create an institutional user
+        institutional = factory.Trait(
+            user_type='institutional'
+        )
+
+class UserProfileFactory(factory.django.DjangoModelFactory):
+    """
+    Factory for creating UserProfile instances.
+    It automatically creates a user if one is not provided.
+    """
+    class Meta:
+        model = UserProfile
+
+    user = factory.SubFactory(CustomUserFactory)
     first_name = factory.Faker('first_name')
     last_name = factory.Faker('last_name')
+    display_name = factory.Faker('user_name')
+    phone_number = factory.Faker('phone_number')
+    preferred_base_currency = "IRT"
+    risk_level = 'medium'
+    two_factor_enabled = False
+
+    class Params:
+        # Trait to create a KYC verified profile
+        kyc_verified = factory.Trait(
+            is_kyc_verified=True,
+            kyc_document_type='PASSPORT',
+            kyc_document_number=factory.Faker('ssn'),
+            kyc_submitted_at=timezone.now() - timedelta(days=5),
+            kyc_verified_at=timezone.now() - timedelta(days=1),
+        )
+
+class UserSessionFactory(factory.django.DjangoModelFactory):
+    """
+    Factory for creating UserSession instances.
+    """
+    class Meta:
+        model = UserSession
+
+    user = factory.SubFactory(CustomUserFactory)
+    session_key = factory.Faker('uuid4')
+    ip_address = factory.Faker('ipv4')
+    user_agent = factory.Faker('user_agent')
     is_active = True
+    expires_at = factory.LazyAttribute(lambda o: timezone.now() + timedelta(days=30))
 
-
-class AgentTypeFactory(factory.django.DjangoModelFactory):
+class UserAPIKeyFactory(factory.django.DjangoModelFactory):
+    """
+    Factory for creating UserAPIKey instances.
+    """
     class Meta:
-        model = AgentType
+        model = UserAPIKey
 
-    name = factory.Sequence(lambda n: f"AgentType {n}")
-    description = factory.Faker('text')
-    capabilities = factory.lazy_attribute(lambda _: {
-        "consumes": ["MARKET_TICK"],
-        "produces": ["SIGNAL"]
-    })
-
-
-class AgentFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Agent
-
-    name = factory.Sequence(lambda n: f"Agent {n}")
-    type = factory.SubFactory(AgentTypeFactory)
+    user = factory.SubFactory(CustomUserFactory)
+    name = factory.Faker('word')
     is_active = True
-
-
-class AgentConfigFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = AgentConfig
-
-    agent = factory.SubFactory(AgentFactory)
-    params = factory.lazy_attribute(lambda _: {
-        "param1": "value1",
-        "param2": "value2"
-    })
-
-
-class AgentStatusFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = AgentStatus
-
-    agent = factory.SubFactory(AgentFactory)
-    state = "running"
-    last_heartbeat = factory.Faker('date_time_this_year')
-    last_error = ""
-
-
-class InstrumentGroupFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = InstrumentGroup
-
-    name = factory.Sequence(lambda n: f"Group {n}")
-    description = factory.Faker('text')
-
-
-class InstrumentFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Instrument
-
-    symbol = factory.Sequence(lambda n: f"SYMBOL{n}")
-    name = factory.Faker('company')
-    group = factory.SubFactory(InstrumentGroupFactory)
-    base_asset = "BTC"
-    quote_asset = "USDT"
-    tick_size = 0.01
-    lot_size = 0.001
-    is_active = True
-
-
-class IndicatorGroupFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = IndicatorGroup
-
-    name = factory.Sequence(lambda n: f"IndicatorGroup {n}")
-    description = factory.Faker('text')
-
-
-class IndicatorFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Indicator
-
-    name = factory.Sequence(lambda n: f"Indicator {n}")
-    code = factory.Sequence(lambda n: f"INDICATOR_{n}")
-    group = factory.SubFactory(IndicatorGroupFactory)
-    description = factory.Faker('text')
-
-
-class StrategyFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = Strategy
-
-    owner = factory.SubFactory(UserFactory)
-    name = factory.Sequence(lambda n: f"Strategy {n}")
-    description = factory.Faker('text')
-    category = "FULL"
-    is_active = True
-
-
-class StrategyVersionFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = StrategyVersion
-
-    strategy = factory.SubFactory(StrategyFactory)
-    version = factory.Sequence(lambda n: f"1.{n}.0")
-    parameters_schema = factory.lazy_attribute(lambda _: {
-        "param1": {"type": "integer", "default": 10},
-        "param2": {"type": "float", "default": 0.5}
-    })
-    indicator_configs = factory.lazy_attribute(lambda _: [
-        {"indicator": "RSI", "params": {"period": 14}},
-        {"indicator": "MACD", "params": {"fast": 12, "slow": 26, "signal": 9}}
-    ])
-    price_action_configs = factory.lazy_attribute(lambda _: [])
-    smart_money_configs = factory.lazy_attribute(lambda _: [])
-    ai_metrics_configs = factory.lazy_attribute(lambda _: [])
-    is_approved_for_live = False
-
+    permissions = {'read': True, 'trade': False}

@@ -1,3 +1,5 @@
+# apps/strategies/admin.py
+
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from .models import Strategy, StrategyVersion, StrategyAssignment
@@ -26,10 +28,6 @@ class StrategyAdmin(admin.ModelAdmin):
         'owner__email'
     )
     raw_id_fields = ('owner',)
-    readonly_fields = (
-        'created_at',
-        'updated_at'
-    )
 
     fieldsets = (
         (None, {
@@ -68,10 +66,6 @@ class StrategyVersionAdmin(admin.ModelAdmin):
         'version'
     )
     raw_id_fields = ('strategy',)
-    readonly_fields = (
-        'created_at',
-        'updated_at'
-    )
 
     fieldsets = (
         (None, {

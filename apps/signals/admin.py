@@ -1,11 +1,11 @@
 # apps/signals/admin.py
+
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
-from django.core.exceptions import PermissionDenied
 from django.utils.html import format_html
-from django.contrib import messages
 from django.db.models import QuerySet
-from django.utils import timezone
+from django.core.exceptions import PermissionDenied
+from django.contrib import messages
 from django.db import transaction
 from typing import Any, Optional
 import logging
@@ -23,13 +23,13 @@ class ReadOnlyAdminMixin:
     برای مدل‌هایی که باید فقط‌خواندنی باشند (مثل لاگ‌ها)
     """
 
-    def has_add_permission(self, request, obj=None) -> bool:
+    def has_add_permission(self, request):
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None):
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None):
         return False
 
 
@@ -108,17 +108,6 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
         'final_order',
     )
 
-    # فیلدهای افقی برای خوانایی
-    list_select_related = (
-        'user',
-        'bot',
-        'strategy_version',
-        'agent',
-        'exchange_account',
-        'instrument',
-        'final_order',
-    )
-
     # فیلدهای فقط‌خواندنی پس از ایجاد
     readonly_fields = (
         'id',
@@ -135,29 +124,18 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
 
     # فیلدهای قابل ویرایش در فرم
     fieldsets = (
-        (_('اطلاعات پایه'), {
-            'fields': ('user', 'bot', 'strategy_version', 'agent', 'exchange_account', 'instrument')
-        }),
-        (_('اطلاعات معامله'), {
-            'fields': ('direction', 'signal_type', 'quantity', 'price')
-        }),
-        (_('پارامترهای سیگنال'), {
-            'fields': ('confidence_score', 'payload', 'status', 'priority', 'is_recurring')
-        }),
-        (_('زمان‌بندی'), {
-            'fields': ('generated_at', 'expires_at', 'processed_at', 'executed_at')
-        }),
-        (_('اطلاعات ردیابی و امنیت'), {
-            'fields': ('correlation_id', 'risk_approval_details', 'created_by_ip', 'user_agent'),
-            'classes': ('collapse',)
-        }),
+        (None, {'fields': ('user', 'bot', 'strategy_version', 'agent', 'exchange_account', 'instrument')}),
+        (_('اطلاعات معامله'), {'fields': ('direction', 'signal_type', 'quantity', 'price')}),
+        (_('پارامترهای سیگنال'), {'fields': ('confidence_score', 'payload', 'status', 'priority', 'is_recurring')}),
+        (_('زمان‌بندی'), {'fields': ('generated_at', 'expires_at', 'processed_at', 'executed_at')}),
+        (_('اطلاعات ردیابی و امنیت'), {'fields': ('correlation_id', 'risk_approval_details', 'created_by_ip', 'user_agent'), 'classes': ('collapse',)}),
     )
 
     actions = ['cancel_signals', 'approve_signals', 'export_signals_csv']
 
     # ----- متدهای امنیتی -----
 
-    def get_queryset(self, request) -> QuerySet:
+    def get_queryset(self, request):
         """فیلتر خودکار بر اساس دسترسی کاربر"""
         qs = super().get_queryset(request)
         if not request.user.is_superuser:
@@ -167,7 +145,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
             'user', 'bot', 'strategy_version', 'agent', 'exchange_account', 'instrument'
         )
 
-    def has_change_permission(self, request, obj: Optional[Signal] = None) -> bool:
+    def has_change_permission(self, request, obj=None):
         """
         کنترل دسترسی ویرایش: فقط کاربران مجاز می‌توانند سیگنال‌ها را ویرایش کنند
         """
@@ -177,13 +155,13 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
                 return False
         return super().has_change_permission(request, obj)
 
-    def has_delete_permission(self, request, obj: Optional[Signal] = None) -> bool:
+    def has_delete_permission(self, request, obj=None):
         """جلوگیری از حذف سیگنال‌ها - برای حفظ یکپارچگی داده"""
         return False
 
     # ----- متدهای نمایشی -----
 
-    def direction_colored(self, obj: Signal) -> str:
+    def direction_colored(self, obj):
         """نمایش رنگی جهت معامله"""
         colors = {
             'BUY': 'green',
@@ -201,7 +179,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
     direction_colored.short_description = _("Direction")
     direction_colored.admin_order_field = 'direction'
 
-    def status_colored(self, obj: Signal) -> str:
+    def status_colored(self, obj):
         """نمایش رنگی وضعیت"""
         colors = {
             'PENDING': 'gray',
@@ -223,7 +201,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
     status_colored.short_description = _("Status")
     status_colored.admin_order_field = 'status'
 
-    def is_expired_indicator(self, obj: Signal) -> str:
+    def is_expired_indicator(self, obj):
         """نمایش وضعیت انقضا"""
         if obj.is_expired():
             return format_html('<span style="color: red;">✓</span>')
@@ -235,7 +213,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
     # ----- اکشن‌های ادمین -----
 
     @admin.action(description=_("لغو سیگنال‌های انتخاب‌شده"))
-    def cancel_signals(self, request, queryset: QuerySet):
+    def cancel_signals(self, request, queryset):
         """لغو ایمن سیگنال‌های انتخاب‌شده"""
         if not request.user.has_perm('signals.can_cancel_signal'):
             raise PermissionDenied(_("شما دسترسی لغو سیگنال را ندارید"))
@@ -254,7 +232,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
         self.message_user(request, f"{updated} سیگنال با موفقیت لغو شد.", level=messages.SUCCESS)
 
     @admin.action(description=_("تایید سیگنال‌های انتخاب‌شده"))
-    def approve_signals(self, request, queryset: QuerySet):
+    def approve_signals(self, request, queryset):
         """تایید دستی سیگنال‌ها (فقط برای مدیران)"""
         if not request.user.is_staff:
             raise PermissionDenied(_("فقط کارکنان مجاز به تایید دستی هستند"))
@@ -279,7 +257,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
         self.message_user(request, f"{updated} سیگنال تایید شد.", level=messages.SUCCESS)
 
     @admin.action(description=_("خروجی CSV از سیگنال‌ها"))
-    def export_signals_csv(self, request, queryset: QuerySet):
+    def export_signals_csv(self, request, queryset):
         """خروجی گرفتن CSV (با فیلتر دسترسی)"""
         import csv
         from django.http import HttpResponse
@@ -314,7 +292,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
 
     # ----- متدهای کمکی -----
 
-    def _get_client_ip(self, request) -> Optional[str]:
+    def _get_client_ip(self, request):
         """دریافت IP امن کاربر"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
@@ -323,7 +301,7 @@ class SignalAdmin(AuditLogAdminMixin, admin.ModelAdmin):
             ip = request.META.get('REMOTE_ADDR')
         return ip
 
-    def save_model(self, request, obj: Signal, form, change):
+    def save_model(self, request, obj, form, change):
         """ذخیره‌سازی با لاگ کامل و احراز هویت"""
         obj._changed_by_user = request.user
 
@@ -383,7 +361,7 @@ class SignalLogAdmin(ReadOnlyAdminMixin, AuditLogAdminMixin, admin.ModelAdmin):
     autocomplete_fields = ('signal', 'changed_by_agent', 'changed_by_user')
     list_select_related = ('signal', 'changed_by_agent', 'changed_by_user')
 
-    def signal_link(self, obj: SignalLog) -> str:
+    def signal_link(self, obj):
         """لینک به سیگنال مادر"""
         from django.urls import reverse
         url = reverse('admin:signals_signal_change', args=[obj.signal_id])
@@ -391,7 +369,7 @@ class SignalLogAdmin(ReadOnlyAdminMixin, AuditLogAdminMixin, admin.ModelAdmin):
 
     signal_link.short_description = _("Signal")
 
-    def changed_by(self, obj: SignalLog) -> str:
+    def changed_by(self, obj):
         """نمایش ویرایش‌کننده"""
         if obj.changed_by_agent:
             return f"Agent: {obj.changed_by_agent.name}"
@@ -451,23 +429,20 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
         'correlation_id',
         'created_at',
         'updated_at',
-        'acknowledged_at',
     )
 
     # فیلدهای افقی
     fields = (
         ('signal', 'correlation_id'),
         ('alert_type', 'severity'),
-        'title',
-        'description',
-        'details',
+        ('title', 'description'),
         ('is_acknowledged', 'acknowledged_by', 'acknowledged_at'),
         ('created_at', 'updated_at'),
     )
 
     actions = ['acknowledge_alerts']
 
-    def signal_link(self, obj: SignalAlert) -> str:
+    def signal_link(self, obj):
         """لینک به سیگنال مادر"""
         from django.urls import reverse
         url = reverse('admin:signals_signal_change', args=[obj.signal_id])
@@ -475,7 +450,7 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
 
     signal_link.short_description = _("Signal")
 
-    def alert_type_colored(self, obj: SignalAlert) -> str:
+    def alert_type_colored(self, obj):
         """نمایش رنگی نوع هشدار"""
         colors = {
             'HIGH_CONFIDENCE': 'green',
@@ -492,7 +467,7 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
 
     alert_type_colored.short_description = _("Alert Type")
 
-    def severity_colored(self, obj: SignalAlert) -> str:
+    def severity_colored(self, obj):
         """نمایش رنگی شدت"""
         colors = {
             1: 'green',  # LOW
@@ -510,7 +485,7 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
     severity_colored.short_description = _("Severity")
 
     @admin.action(description=_("تایید هشدارهای انتخاب‌شده"))
-    def acknowledge_alerts(self, request, queryset: QuerySet):
+    def acknowledge_alerts(self, request, queryset):
         """تایید گروهی هشدارها با لاگ"""
         updated = 0
         for alert in queryset.filter(is_acknowledged=False):
@@ -522,7 +497,7 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
 
         self.message_user(request, f"{updated} هشدار تایید شد.", level=messages.SUCCESS)
 
-    def has_change_permission(self, request, obj: Optional[SignalAlert] = None) -> bool:
+    def has_change_permission(self, request, obj=None):
         """
         کنترل دسترسی: فقط کاربران مجاز می‌توانند هشدارها را تایید کنند
         """
@@ -531,20 +506,20 @@ class SignalAlertAdmin(AuditLogAdminMixin, admin.ModelAdmin):
             return False
         return super().has_change_permission(request, obj)
 
-    def has_delete_permission(self, request, obj: Optional[SignalAlert] = None) -> bool:
+    def has_delete_permission(self, request, obj=None):
         """جلوگیری از حذف هشدارهای بحرانی"""
         if obj and obj.severity >= Severity.HIGH:
             return False
         return super().has_delete_permission(request, obj)
 
-    def save_model(self, request, obj: SignalAlert, form, change):
+    def save_model(self, request, obj, form, change):
         """ذخیره‌سازی با احراز هویت"""
         if change and 'is_acknowledged' in form.changed_data:
             obj.acknowledged_by = request.user
 
         super().save_model(request, obj, form, change)
 
-    def _get_client_ip(self, request) -> Optional[str]:
+    def _get_client_ip(self, request):
         """دریافت IP امن کاربر"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:

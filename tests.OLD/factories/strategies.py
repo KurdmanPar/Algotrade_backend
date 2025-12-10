@@ -1,7 +1,10 @@
 # tests/factories/strategies.py
 import factory
 from django.contrib.auth import get_user_model
+from django.utils import timezone  # ✅ اضافه شد
 from apps.strategies.models import Strategy, StrategyVersion
+
+
 
 User = get_user_model()
 
@@ -15,7 +18,9 @@ class StrategyFactory(factory.django.DjangoModelFactory):
     description = factory.Faker('text')
     category = "FULL"
     is_active = True
-
+    is_public = False  # ✅ اضافه شد
+    created_at = factory.LazyAttribute(lambda _: timezone.now())
+    updated_at = factory.LazyAttribute(lambda _: timezone.now())
 
 class StrategyVersionFactory(factory.django.DjangoModelFactory):
     class Meta:
