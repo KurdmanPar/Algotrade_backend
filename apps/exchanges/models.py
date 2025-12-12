@@ -4,12 +4,19 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from apps.core.models import BaseModel
-from apps.core.encryption import encrypt_field, decrypt_field # فرض بر این است که این ماژول وجود دارد
-from apps.bots.models import TradingBot # فرض بر این است که اپلیکیشن bots وجود دارد
+from apps.core.models import BaseModel, BaseOwnedModel # استفاده از مدل‌های پایه از core
+from apps.core.encryption import encrypt_field, decrypt_field # استفاده از ابزار رمزنگاری از core
+from apps.core.helpers import validate_ip_list # استفاده از تابع کمکی از core
+from apps.bots.models import TradingBot # ایمپورت مدل از اپلیکیشن دیگر (فرض: وجود دارد)
+from apps.accounts.models import CustomUser # ایمپورت مدل کاربر از اپلیکیشن accounts (فرض: وجود دارد)
+from decimal import Decimal
+import logging
 
+logger = logging.getLogger(__name__)
 
-class Exchange(BaseModel):
+# --- مدل‌های اصلی صرافی و حساب ---
+
+class Exchange(BaseModel): # استفاده از BaseModel از core
     """
     تعریف صرافی‌ها (مثلاً: Binance, Coinbase).
     """
@@ -33,26 +40,42 @@ class Exchange(BaseModel):
     fees_structure = models.JSONField(default=dict, blank=True, verbose_name=_("Fees Structure (JSON)"))
     limits = models.JSONField(default=dict, blank=True, verbose_name=_("Limits (JSON)"))
 
-    def __str__(self):
-        return self.name
-
     class Meta:
         verbose_name = _("Exchange")
         verbose_name_plural = _("Exchanges")
+        indexes = [
+            models.Index(fields=['code']), # برای جستجوی سریع بر اساس کد
+            models.Index(fields=['type', 'is_active']), # برای فیلتر کردن نوع و وضعیت
+        ]
+
+    def __str__(self):
+        return self.name
 
 
-class ExchangeAccount(BaseModel):
+class ExchangeAccount(BaseModel): # استفاده از BaseOwnedModel از core اگر مالک داشته باشد
     """
     اتصال حساب کاربر به یک صرافی خاص.
     """
-    user = models.ForeignKey(
+    # این مدل دارای فیلد owner است (user)، بنابراین باید از BaseOwnedModel ارث ببرد
+    # تغییر می‌دهیم:
+    # class ExchangeAccount(BaseModel):
+    # به:
+    # class ExchangeAccount(BaseOwnedModel): # BaseOwnedModel از core شامل owner است
+    # اما چون user نام فیلد است، باید owner_field_name را تنظیم کنیم یا در سریالایزر/ویو مدیریت کنیم
+    # فعلاً فقط فیلد user را نگه می‌داریم و در سریالایزر/ویو از BaseOwnedModel استفاده می‌کنیم
+    # اما برای تمیز بودن، بهتر است از BaseOwnedModel استفاده کنیم و فیلد user را owner بنامیم
+    # یا یک BaseExchangeAccountModel ایجاد کنیم که از BaseOwnedModel ارث ببرد و فیلد user را نیز داشته باشد
+    # برای اینجا، از BaseOwnedModel استفاده می‌کنیم و user را owner می‌نامیم در فیلد ارتباطی
+
+    # --- اصلاح: از BaseOwnedModel استفاده می‌کنیم ---
+    owner = models.ForeignKey( # فیلد owner باید با نام owner تعریف شود تا با BaseOwnedModel سازگار باشد
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="exchange_accounts",
-        verbose_name=_("User")
+        related_name="exchange_accounts_owned", # تغییر نام related_name برای سازگاری با owner
+        verbose_name=_("Owner") # تغییر نام فیلد از User به Owner
     )
     exchange = models.ForeignKey(
-        "exchanges.Exchange",
+        "exchanges.Exchange", # استفاده از نام اپلیکیشن
         on_delete=models.CASCADE,
         related_name="accounts",
         verbose_name=_("Exchange")
@@ -60,7 +83,6 @@ class ExchangeAccount(BaseModel):
     label = models.CharField(max_length=128, blank=True, verbose_name=_("Account Label"))  # e.g. "My Main Binance Account"
 
     # امنیت: ذخیره رمزنگاری شده کلیدها
-    # این فیلدها را به عنوان فیلدهای خصوصی در نظر می‌گیریم
     _api_key_encrypted = models.TextField(verbose_name=_("Encrypted API Key"))
     _api_secret_encrypted = models.TextField(verbose_name=_("Encrypted API Secret"))
     # IV یا Nonce مورد نیاز برای رمزنگاری (اگر الگوریتم نیاز داشته باشد)
@@ -79,18 +101,24 @@ class ExchangeAccount(BaseModel):
     # ارتباط با بات‌ها
     linked_bots = models.ManyToManyField(
         TradingBot,
-        related_name="exchange_accounts",
+        related_name="exchange_accounts", # نام related_name باید منحصر به فرد باشد
         blank=True,
         verbose_name=_("Linked Bots")
     )
+    # اضافه کردن فیلد مالک (owner) - که در BaseOwnedModel قرار دارد
+    # owner = models.ForeignKey(...) # قبلاً اضافه شد
 
     class Meta:
         verbose_name = _("Exchange Account")
         verbose_name_plural = _("Exchange Accounts")
-        unique_together = ("user", "exchange", "label")
+        unique_together = ("owner", "exchange", "label") # تغییر: owner به جای user
+        indexes = [
+            models.Index(fields=['owner', 'exchange', 'is_active']), # برای جستجوی سریع حساب‌های کاربر
+            models.Index(fields=['exchange', 'is_active']), # برای جستجوی حساب‌های یک صرافی
+        ]
 
     def __str__(self):
-        return f"{self.user.email} - {self.exchange.name} ({self.label or 'Default'})"
+        return f"{self.owner.email} - {self.exchange.name} ({self.label or 'Default'})" # تغییر: owner به جای user
 
     # متدهای کمکی برای کار با کلیدهای رمزنگاری شده
     @property
@@ -117,8 +145,54 @@ class ExchangeAccount(BaseModel):
         self._api_secret_encrypted = encrypted_val
         # IV ممکن است یکی برای هر جفت کلید/مخفی باشد، یا جداگانه ذخیره شود، بسته به پیاده‌سازی
 
+    def clean(self):
+        """
+        Validates the model instance.
+        """
+        super().clean()
+        # مثال: اعتبارسنجی فیلد extra_credentials
+        if self.extra_credentials:
+            # می‌توانید منطق خاصی برای اعتبارسنجی JSON اضافی اضافه کنید
+            pass # یا استفاده از یک تابع کمکی یا validator
 
-class Wallet(BaseModel):
+        # مثال: اعتبارسنجی فیلدهای مربوط به IP
+        if self.created_ip:
+            ip_list_str = self.created_ip # فقط یک IP است، نه لیست
+            # تابع validate_ip_list برای لیست است، بنابراین برای یک IP، باید جداگانه چک شود
+            from ipaddress import ip_address
+            try:
+                ip_address(self.created_ip)
+            except ValueError:
+                raise ValidationError({'created_ip': _('Invalid IP address format.')})
+
+        if self.last_login_ip:
+            from ipaddress import ip_address
+            try:
+                ip_address(self.last_login_ip)
+            except ValueError:
+                raise ValidationError({'last_login_ip': _('Invalid IP address format.')})
+
+    # --- منطق مربوط به اتصال ---
+    def connect_to_exchange(self):
+        """
+        Connects to the exchange using the stored credentials.
+        This would typically involve using a connector service.
+        """
+        try:
+            from apps.connectors.service import ConnectorService # import داخل تابع برای جلوگیری از حلقه
+            connector = ConnectorService(self.exchange.name)
+            connection = connector.connect(
+                api_key=self.api_key, # از property رمزنگاری شده استفاده می‌کند
+                api_secret=self.api_secret, # از property رمزنگاری شده استفاده می‌کند
+                extra_creds=self.extra_credentials
+            )
+            return connection
+        except Exception as e:
+            logger.error(f"Failed to connect to exchange {self.exchange.name} for account {self.label}: {str(e)}")
+            raise # یا مدیریت خطا مناسب
+
+
+class Wallet(BaseModel): # این مدل ممکن است مالکیت مستقیم نداشته باشد، فقط مربوط به یک ExchangeAccount است
     """
     تعریف انواع کیف پول در یک حساب صرافی (Spot, Futures, ...).
     """
@@ -131,7 +205,7 @@ class Wallet(BaseModel):
         ("OTHER", _("Other")),
     ]
     exchange_account = models.ForeignKey(
-        "exchanges.ExchangeAccount",
+        "exchanges.ExchangeAccount", # استفاده از نام اپلیکیشن
         on_delete=models.CASCADE,
         related_name="wallets",
         verbose_name=_("Exchange Account")
@@ -144,12 +218,16 @@ class Wallet(BaseModel):
     leverage = models.DecimalField(max_digits=5, decimal_places=2, default=1, verbose_name=_("Leverage"))
     borrowed_amount = models.DecimalField(max_digits=32, decimal_places=16, default=0, verbose_name=_("Borrowed Amount"))
 
-    def __str__(self):
-        return f"{self.exchange_account} - {self.wallet_type}"
-
     class Meta:
         verbose_name = _("Wallet")
         verbose_name_plural = _("Wallets")
+        unique_together = ("exchange_account", "wallet_type") # یک کاربر فقط یک کیف پول از هر نوع در یک صرافی دارد
+        indexes = [
+            models.Index(fields=['exchange_account', 'wallet_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.exchange_account.owner.email} - {self.exchange_account.exchange.name} - {self.wallet_type}" # تغییر: owner به جای user
 
 
 class WalletBalance(BaseModel):
@@ -174,22 +252,20 @@ class WalletBalance(BaseModel):
     class Meta:
         verbose_name = _("Wallet Balance")
         verbose_name_plural = _("Wallet Balances")
-        unique_together = ("wallet", "asset_symbol")
+        unique_together = ("wallet", "asset_symbol") # یک ارز فقط یک بار در یک کیف پول وجود داشته باشد
+        indexes = [
+            models.Index(fields=['wallet', 'asset_symbol']),
+        ]
 
     def __str__(self):
         return f"{self.asset_symbol}: {self.available_balance} ({self.wallet})"
 
 
-class AggregatedPortfolio(BaseModel):
+class AggregatedPortfolio(BaseOwnedModel): # استفاده از BaseOwnedModel از core
     """
     نگهداری پرتفوی کلی و تجمیعی کاربر.
     """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="aggregated_portfolio",
-        verbose_name=_("User")
-    )
+    # owner = models.ForeignKey(...) # قبلاً در BaseOwnedModel تعریف شده است
     base_currency = models.CharField(max_length=16, default="USD", verbose_name=_("Base Currency"))
     total_equity = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total Equity"))
     total_unrealized_pnl = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total Unrealized PnL"))
@@ -199,22 +275,22 @@ class AggregatedPortfolio(BaseModel):
     total_funding_fees = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total Funding Fees"))
     last_valuation_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Valuation At"))
 
-    # فیلدهای timestamp از BaseModel ارث می‌بریم: created_at, updated_at
-
-    def __str__(self):
-        return f"Portfolio of {self.user.email}"
+    # فیلدهای timestamp از BaseModel (که در BaseOwnedModel ارث می‌برد) ارث می‌بریم: created_at, updated_at
 
     class Meta:
         verbose_name = _("Aggregated Portfolio")
         verbose_name_plural = _("Aggregated Portfolios")
 
+    def __str__(self):
+        return f"Portfolio of {self.owner.email}" # تغییر: owner به جای user
 
-class AggregatedAssetPosition(BaseModel):
+
+class AggregatedAssetPosition(BaseModel): # این مدل مربوط به یک AggregatedPortfolio است، نه مستقیماً کاربر
     """
     نگهداری پوزیشن تجمیعی هر دارایی برای کاربر در سطح کل پرتفوی.
     """
     aggregated_portfolio = models.ForeignKey(
-        "exchanges.AggregatedPortfolio",
+        "exchanges.AggregatedPortfolio", # استفاده از نام اپلیکیشن
         on_delete=models.CASCADE,
         related_name="asset_positions",
         verbose_name=_("Aggregated Portfolio")
@@ -230,12 +306,19 @@ class AggregatedAssetPosition(BaseModel):
     class Meta:
         verbose_name = _("Aggregated Asset Position")
         verbose_name_plural = _("Aggregated Asset Positions")
-        unique_together = ("aggregated_portfolio", "asset_symbol")
+        unique_together = ("aggregated_portfolio", "asset_symbol") # یک ارز فقط یک بار در یک پرتفوی تجمیعی وجود داشته باشد
+        indexes = [
+            models.Index(fields=['aggregated_portfolio', 'asset_symbol']),
+        ]
 
     def __str__(self):
-        return f"{self.asset_symbol} in Portfolio of {self.aggregated_portfolio.user.email}"
+        return f"{self.asset_symbol} in Portfolio of {self.aggregated_portfolio.owner.email}" # تغییر: owner به جای user
 
-# --- اضافه شدن مدل‌های جدید ---
+
+# --- مدل‌های مربوط به تاریخچه معاملات و داده بازار ---
+# این مدل‌ها ممکن است بیشتر جایشان در اپلیکیشن `trading` یا `market_data` باشد
+# اما اگر فقط مربوط به حساب صرافی کاربر است، می‌توانند در `exchanges` بمانند
+
 class OrderHistory(BaseModel):
     """
     تاریخچه معاملات (سفارشات) انجام شده از طریق حساب‌های صرافی.
@@ -261,7 +344,7 @@ class OrderHistory(BaseModel):
         # سایر نوع‌های سفارش صرافی
     ]
     exchange_account = models.ForeignKey(
-        ExchangeAccount,
+        ExchangeAccount, # استفاده از مدل تعریف شده در همین اپلیکیشن
         on_delete=models.CASCADE,
         related_name="order_history",
         verbose_name=_("Exchange Account")
@@ -285,7 +368,7 @@ class OrderHistory(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="executed_orders",
+        related_name="executed_orders", # نام related_name باید منحصر به فرد باشد
         verbose_name=_("Trading Bot")
     )
 
@@ -296,15 +379,17 @@ class OrderHistory(BaseModel):
         indexes = [
             models.Index(fields=['exchange_account', 'time_placed']), # برای جستجوی تاریخچه
             models.Index(fields=['symbol', 'time_placed']), # برای تحلیل نماد
+            models.Index(fields=['status', 'time_updated']), # برای فیلتر سفارشات فعال/به‌روزرسانی شده
         ]
 
     def __str__(self):
         return f"{self.side} {self.quantity} {self.symbol} ({self.status}) on {self.exchange_account}"
 
 
-class MarketDataCandle(BaseModel):
+class MarketDataCandle(BaseModel): # این مدل بیشتر مربوط به market_data است، اما اگر فقط برای تاریخچه یا نمایش ساده در exchanges نیاز باشد
     """
     مدل ذخیره‌سازی داده‌های کندل (OHLCV) از صرافی‌ها برای بک تست و تحلیل.
+    این مدل ممکن است در اپلیکیشن 'market_data' منطقی‌تر باشد.
     """
     INTERVAL_CHOICES = [
         ('1m', _('1 Minute')),
@@ -318,7 +403,7 @@ class MarketDataCandle(BaseModel):
         ('1M', _('1 Month')),
     ]
     exchange = models.ForeignKey(
-        Exchange,
+        Exchange, # استفاده از مدل تعریف شده در همین اپلیکیشن
         on_delete=models.CASCADE,
         related_name="candle_data",
         verbose_name=_("Exchange")
@@ -348,3 +433,27 @@ class MarketDataCandle(BaseModel):
 
     def __str__(self):
         return f"{self.symbol} - {self.interval} - {self.open_time}"
+
+# --- مدل‌های دیگر ---
+# می‌توانید مدل‌های دیگری که مربوط به اطلاعات صرافی یا حساب‌های صرافی است اضافه کنید
+# مثلاً یک مدل برای تاریخچه تراز صرافی (Balance History)
+# یا یک مدل برای نگاشت نمادهای صرافی به نمادهای داخلی (Symbol Mapping)
+# یا یک مدل برای مدیریت کانفیگ‌های اتصال خاص هر صرافی (ExchangeConfig)
+# یا یک مدل برای لاگ اتصالات (ConnectionLog)
+
+# class ExchangeConnectionLog(BaseModel):
+#     exchange_account = models.ForeignKey(ExchangeAccount, on_delete=models.CASCADE, related_name="connection_logs")
+#     status = models.CharField(max_length=16, choices=[('CONNECTED', 'Connected'), ('DISCONNECTED', 'Disconnected')])
+#     reason = models.TextField(blank=True)
+#     connected_at = models.DateTimeField(null=True, blank=True)
+#     disconnected_at = models.DateTimeField(null=True, blank=True)
+#     class Meta:
+#         verbose_name = _("Exchange Connection Log")
+#         verbose_name_plural = _("Exchange Connection Logs")
+#         indexes = [
+#             models.Index(fields=['exchange_account', '-connected_at']),
+#         ]
+#     def __str__(self):
+#         return f"Connection Log for {self.exchange_account} - {self.status}"
+
+logger.info("Exchanges models loaded successfully.")

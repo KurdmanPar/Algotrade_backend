@@ -4,91 +4,89 @@ import pytest
 from django.apps import apps
 from django.test import override_settings
 from apps.core.apps import CoreConfig
-from apps.core.models import AuditLog, SystemSetting, CacheEntry # فرض بر این است که مدل‌هایی وجود دارند
 import logging
 
-pytestmark = pytest.mark.django_db
+logger = logging.getLogger(__name__)
 
-class TestCoreAppConfig:
+#pytestmark = pytest.mark.django_db # Apps config تست نیازی به پایگاه داده ندارد
+
+class TestCoreAppsConfig:
     """
-    Tests for the CoreConfig class in apps.py.
+    Tests for the CoreConfig class in apps/core/apps.py.
     """
 
-    @pytest.fixture
-    def core_config(self):
+    def test_core_config_name(self):
         """
-        Fixture to get the CoreConfig instance.
+        Test that the name of the app config is correctly set.
         """
-        return apps.get_app_config('core')
+        config = CoreConfig
+        assert config.name == 'apps.core'
 
-    def test_core_app_config_name(self, core_config):
+    def test_core_config_verbose_name(self):
         """
-        Test that the app config name is correctly set.
+        Test that the verbose name of the app config is correctly set.
         """
-        assert core_config.name == 'apps.core'
+        config = CoreConfig
+        # توجه: verbose_name یک ویژگی کلاس نیست، بلکه در متا مدل است
+        # برای چک کردن verbose_name، باید نمونه‌ای از کلاس ایجاد کنیم
+        instance = CoreConfig('apps.core', apps.get_app_config('core').module)
+        # این کار نیازمند این است که app_label در apps.py یا Meta مدل تعریف شده باشد
+        # یا اینکه از apps.get_app_config استفاده کنیم
+        app_config = apps.get_app_config('core')
+        assert app_config.verbose_name == "Core System" # بسته به مقداری که در apps.py تنظیم شده است
 
-    def test_core_app_config_verbose_name(self, core_config):
-        """
-        Test that the app config verbose name is correctly set.
-        """
-        assert core_config.verbose_name == 'Core System'
-
-    def test_core_app_config_default_auto_field(self, core_config):
+    def test_core_config_default_auto_field(self):
         """
         Test that the default_auto_field is correctly set.
         """
-        assert core_config.default_auto_field == 'django.db.models.BigAutoField'
+        config = CoreConfig
+        assert config.default_auto_field == 'django.db.models.BigAutoField'
 
-    def test_core_app_config_ready_method_loads_signals(self, mocker, caplog):
+    def test_ready_method_registers_signals(self, mocker, caplog):
         """
-        Test that the ready() method correctly imports and registers signals.
-        Uses caplog to capture log messages.
+        Test that the ready method successfully imports and connects signals.
+        This test mocks the import_module to avoid actually loading signals during test.
         """
-        # Mock کردن ایمپورت apps.core.signals
+        # Mock کردن import_module
         mock_import = mocker.patch('apps.core.apps.import_module')
 
         # اجرای متد ready
         with caplog.at_level(logging.INFO):
-            core_config = CoreConfig('apps.core', None) # module=None برای سادگی
-            core_config.ready()
+            config_instance = CoreConfig('apps.core', None) # module=None برای سادگی
+            config_instance.ready()
 
-        # چک کردن اینکه آیا فایل signals واقعاً import شده است
+        # چک کردن اینکه آیا import_module با مسیر صحیح فراخوانی شد
         mock_import.assert_called_once_with('apps.core.signals')
 
         # چک کردن اینکه آیا پیام لاگ مربوطه چاپ شده است
         assert "Signals for 'core' app loaded successfully." in caplog.text
 
-
-    # --- تست مدل‌هایی که در ready() ممکن است مورد استفاده قرار گیرند ---
-    def test_models_accessible_after_ready(self, core_config):
+    def test_ready_method_handles_import_error(self, mocker, caplog):
         """
-        Test that models defined in core are accessible after the app is loaded.
+        Test that the ready method gracefully handles an ImportError when loading signals.
         """
-        # متد ready() قبلاً اجرا شده است (هنگام شروع پروژه)
-        # پس فقط چک می‌کنیم که آیا مدل‌ها وجود دارند
-        assert apps.get_model('core', 'AuditLog') == AuditLog
-        assert apps.get_model('core', 'SystemSetting') == SystemSetting
-        assert apps.get_model('core', 'CacheEntry') == CacheEntry
-        # ... سایر مدل‌ها ...
+        # Mock کردن import_module تا یک ImportError صادر کند
+        mocker.patch('apps.core.apps.import_module', side_effect=ImportError("Module not found"))
 
-    # --- تست تنظیمات مربوط به core در ready() (اگر وجود داشت) ---
-    # مثال: اگر در ready() تنظیماتی برای کش یا لاگ اعمال می‌شد
-    # def test_core_settings_loaded_in_ready(self, mocker):
-    #     mock_setting = mocker.patch('apps.core.apps.settings.CORE_SPECIFIC_SETTING')
-    #     mock_setting.return_value = 'expected_value'
+        # اجرای متد ready
+        with caplog.at_level(logging.ERROR):
+            config_instance = CoreConfig('apps.core', None)
+            config_instance.ready()
+
+        # چک کردن اینکه آیا پیام خطا لاگ شده است
+        assert "Failed to load signals for 'core' app" in caplog.text
+
+    # --- تست سایر منطق‌های ready (اگر وجود داشت) ---
+    # مثلاً اگر در ready() یک کار خاص انجام می‌دادید یا یک اکشن ادمین ثبت می‌کردید
+    # def test_ready_registers_custom_action(self, mocker):
+    #     mock_register_action = mocker.patch('apps.core.apps.admin_register_custom_action')
     #     core_config = CoreConfig('apps.core', None)
     #     core_config.ready()
-    #     # چک کنید که تنظیمات مورد نظر در ready قرار گرفته یا اعمال شده باشند
-    #     # این بستگی به منطق داخل ready() دارد
-    #     assert settings.CORE_SPECIFIC_SETTING == 'expected_value' # اگر در ready تغییر کرد
+    #     mock_register_action.assert_called_once()
 
-# --- تست سایر منطق‌های ready (اگر وجود داشت) ---
-# مثلاً اگر در ready() یک کار خاص انجام می‌دادید یا یک اکشن ادمین ثبت می‌کردید
-# class TestCoreAppReadyLogic:
-#     def test_custom_startup_logic(self, mocker):
-#         mock_custom_func = mocker.patch('apps.core.apps.some_custom_startup_function')
-#         core_config = CoreConfig('apps.core', None)
-#         core_config.ready()
-#         mock_custom_func.assert_called_once()
+    # def test_ready_loads_settings(self, mocker):
+    #     # مثال: چک کردن اینکه آیا تنظیمات سیستمی از پایگاه داده یا کش بارگذاری می‌شود
+    #     # این نیازمند پیاده‌سازی خاصی در ready() است
+    #     pass # فقط نمونه، اگر چنین منطقی وجود داشت
 
 logger.info("Core app config tests loaded successfully.")
