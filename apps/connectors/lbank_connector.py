@@ -165,7 +165,7 @@
 
 ######################################
 
-# apps/connectors/lbank_connector.py
+# apps/connectors/exchange_lbank_connector.py
 from .connector_interface import IExchangeConnector
 import aiohttp
 import asyncio

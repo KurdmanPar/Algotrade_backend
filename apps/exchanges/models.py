@@ -7,10 +7,12 @@ from django.utils.translation import gettext_lazy as _
 from apps.core.models import BaseModel, BaseOwnedModel # استفاده از مدل‌های پایه از core
 from apps.core.encryption import encrypt_field, decrypt_field # استفاده از ابزار رمزنگاری از core
 from apps.core.helpers import validate_ip_list # استفاده از تابع کمکی از core
-from apps.bots.models import TradingBot # ایمپورت مدل از اپلیکیشن دیگر (فرض: وجود دارد)
-from apps.accounts.models import CustomUser # ایمپورت مدل کاربر از اپلیکیشن accounts (فرض: وجود دارد)
+from apps.core.exceptions import DataIntegrityException # استفاده از استثناهای core
+from apps.accounts.models import CustomUser # import مدل کاربر از اپلیکیشن accounts
+from apps.bots.models import TradingBot # import مدل بات از اپلیکیشن bots (اگر وجود داشته باشد)
 from decimal import Decimal
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,9 @@ class Exchange(BaseModel): # استفاده از BaseModel از core
         ("FUTURES", _("Futures Exchange")),
         ("OPTIONS", _("Options Exchange")),
     ]
-    name = models.CharField(max_length=128, verbose_name=_("Exchange Name"))
-    code = models.CharField(max_length=32, unique=True, verbose_name=_("Exchange Code"))  # e.g. BINANCE
-    type = models.CharField(max_length=16, choices=EXCHANGE_TYPE_CHOICES, verbose_name=_("Exchange Type"))
+    name = models.CharField(max_length=128, verbose_name=_("Name"))
+    code = models.CharField(max_length=32, unique=True, verbose_name=_("Code"))  # e.g. BINANCE
+    type = models.CharField(max_length=16, choices=EXCHANGE_TYPE_CHOICES, verbose_name=_("Type"))
     base_url = models.URLField(verbose_name=_("Base API URL"))
     ws_url = models.URLField(blank=True, verbose_name=_("WebSocket URL"))
     api_docs_url = models.URLField(blank=True, verbose_name=_("API Documentation URL"))
@@ -51,29 +53,24 @@ class Exchange(BaseModel): # استفاده از BaseModel از core
     def __str__(self):
         return self.name
 
+    def clean(self):
+        """
+        Validates the model instance.
+        """
+        super().clean()
+        # مثال: اعتبارسنجی فیلد fees_structure یا limits
+        if self.fees_structure:
+            # می‌توانید منطق خاصی برای اعتبارسنجی JSON اضافی اضافه کنید
+            pass # یا استفاده از یک تابع کمکی یا validator
+        if self.limits:
+            # منطق اعتبارسنجی محدودیت‌ها
+            pass
 
-class ExchangeAccount(BaseModel): # استفاده از BaseOwnedModel از core اگر مالک داشته باشد
+
+class ExchangeAccount(BaseOwnedModel): # استفاده از BaseOwnedModel از core برای مالکیت
     """
     اتصال حساب کاربر به یک صرافی خاص.
     """
-    # این مدل دارای فیلد owner است (user)، بنابراین باید از BaseOwnedModel ارث ببرد
-    # تغییر می‌دهیم:
-    # class ExchangeAccount(BaseModel):
-    # به:
-    # class ExchangeAccount(BaseOwnedModel): # BaseOwnedModel از core شامل owner است
-    # اما چون user نام فیلد است، باید owner_field_name را تنظیم کنیم یا در سریالایزر/ویو مدیریت کنیم
-    # فعلاً فقط فیلد user را نگه می‌داریم و در سریالایزر/ویو از BaseOwnedModel استفاده می‌کنیم
-    # اما برای تمیز بودن، بهتر است از BaseOwnedModel استفاده کنیم و فیلد user را owner بنامیم
-    # یا یک BaseExchangeAccountModel ایجاد کنیم که از BaseOwnedModel ارث ببرد و فیلد user را نیز داشته باشد
-    # برای اینجا، از BaseOwnedModel استفاده می‌کنیم و user را owner می‌نامیم در فیلد ارتباطی
-
-    # --- اصلاح: از BaseOwnedModel استفاده می‌کنیم ---
-    owner = models.ForeignKey( # فیلد owner باید با نام owner تعریف شود تا با BaseOwnedModel سازگار باشد
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="exchange_accounts_owned", # تغییر نام related_name برای سازگاری با owner
-        verbose_name=_("Owner") # تغییر نام فیلد از User به Owner
-    )
     exchange = models.ForeignKey(
         "exchanges.Exchange", # استفاده از نام اپلیکیشن
         on_delete=models.CASCADE,
@@ -101,17 +98,15 @@ class ExchangeAccount(BaseModel): # استفاده از BaseOwnedModel از core
     # ارتباط با بات‌ها
     linked_bots = models.ManyToManyField(
         TradingBot,
-        related_name="exchange_accounts", # نام related_name باید منحصر به فرد باشد
+        related_name="exchange_accounts_linked", # نام related_name باید منحصر به فرد باشد
         blank=True,
         verbose_name=_("Linked Bots")
     )
-    # اضافه کردن فیلد مالک (owner) - که در BaseOwnedModel قرار دارد
-    # owner = models.ForeignKey(...) # قبلاً اضافه شد
 
     class Meta:
         verbose_name = _("Exchange Account")
         verbose_name_plural = _("Exchange Accounts")
-        unique_together = ("owner", "exchange", "label") # تغییر: owner به جای user
+        unique_together = ("owner", "exchange", "label") # تغییر: owner به جای user، از BaseOwnedModel
         indexes = [
             models.Index(fields=['owner', 'exchange', 'is_active']), # برای جستجوی سریع حساب‌های کاربر
             models.Index(fields=['exchange', 'is_active']), # برای جستجوی حساب‌های یک صرافی
@@ -150,17 +145,11 @@ class ExchangeAccount(BaseModel): # استفاده از BaseOwnedModel از core
         Validates the model instance.
         """
         super().clean()
-        # مثال: اعتبارسنجی فیلد extra_credentials
-        if self.extra_credentials:
-            # می‌توانید منطق خاصی برای اعتبارسنجی JSON اضافی اضافه کنید
-            pass # یا استفاده از یک تابع کمکی یا validator
-
-        # مثال: اعتبارسنجی فیلدهای مربوط به IP
+        # اعتبارسنجی IPها (اگر وجود داشته باشند)
         if self.created_ip:
-            ip_list_str = self.created_ip # فقط یک IP است، نه لیست
-            # تابع validate_ip_list برای لیست است، بنابراین برای یک IP، باید جداگانه چک شود
-            from ipaddress import ip_address
             try:
+                # تابع validate_ip_list از core.helpers استفاده می‌شود
+                from ipaddress import ip_address
                 ip_address(self.created_ip)
             except ValueError:
                 raise ValidationError({'created_ip': _('Invalid IP address format.')})
@@ -171,6 +160,22 @@ class ExchangeAccount(BaseModel): # استفاده از BaseOwnedModel از core
                 ip_address(self.last_login_ip)
             except ValueError:
                 raise ValidationError({'last_login_ip': _('Invalid IP address format.')})
+
+        # اعتبارسنجی extra_credentials (اگر نیاز باشد)
+        if self.extra_credentials:
+            # مثال: چک کردن ساختار JSON یا محتوای خاص
+            if not isinstance(self.extra_credentials, dict):
+                raise ValidationError({'extra_credentials': _('Must be a valid JSON object.')})
+            # مثال: چک کردن وجود فیلد خاص
+            # if 'required_field' not in self.extra_credentials:
+            #     raise ValidationError({'extra_credentials': _('Missing required field: required_field')})
+
+        # اعتبارسنجی فیلدهای مرتبط با مارجین
+        if self.initial_margin_ratio and self.maintenance_margin_ratio and self.initial_margin_ratio < self.maintenance_margin_ratio:
+            raise ValidationError({'initial_margin_ratio': _('Initial margin ratio cannot be less than maintenance margin ratio.')})
+
+        if self.max_leverage and self.max_leverage < 1:
+            raise ValidationError({'max_leverage': _('Max leverage must be at least 1.')})
 
     # --- منطق مربوط به اتصال ---
     def connect_to_exchange(self):
@@ -265,7 +270,6 @@ class AggregatedPortfolio(BaseOwnedModel): # استفاده از BaseOwnedModel 
     """
     نگهداری پرتفوی کلی و تجمیعی کاربر.
     """
-    # owner = models.ForeignKey(...) # قبلاً در BaseOwnedModel تعریف شده است
     base_currency = models.CharField(max_length=16, default="USD", verbose_name=_("Base Currency"))
     total_equity = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total Equity"))
     total_unrealized_pnl = models.DecimalField(max_digits=32, decimal_places=8, default=0, verbose_name=_("Total Unrealized PnL"))
@@ -368,7 +372,7 @@ class OrderHistory(BaseModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="executed_orders", # نام related_name باید منحصر به فرد باشد
+        related_name="executed_orders_linked", # نام related_name باید منحصر به فرد باشد
         verbose_name=_("Trading Bot")
     )
 

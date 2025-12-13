@@ -14,63 +14,21 @@ from .models import (
     OrderHistory,
     MarketDataCandle,
 )
+from apps.accounts.models import CustomUser # import مدل کاربر
+from apps.bots.models import TradingBot # import مدل بات (اگر وجود داشت)
+from apps.instruments.models import Instrument # import مدل نماد (اگر وجود داشت)
+from apps.core.models import AuditLog # import مدل حسابرسی (اگر وجود داشت)
 
-
-class ExchangeAccountInline(admin.TabularInline):
-    """
-    Inline admin for ExchangeAccount within the User admin.
-    """
-    model = ExchangeAccount
-    extra = 0
-    fields = ('exchange', 'label', 'is_active', 'is_paper_trading', 'last_sync_at', 'link_to_details')
-    readonly_fields = ('link_to_details',)
-
-    def link_to_details(self, obj):
-        if obj.pk:  # فقط اگر شیء ذخیره شده بود
-            url = reverse('admin:exchanges_exchangeaccount_change', args=[obj.pk])
-            return format_html('<a href="{}">View Details</a>', url)
-        return "N/A"
-    link_to_details.short_description = "Details"
-
-
-class WalletInline(admin.TabularInline):
-    """
-    Inline admin for Wallet within the ExchangeAccount admin.
-    """
-    model = Wallet
-    extra = 0
-    fields = ('wallet_type', 'description', 'is_default', 'leverage')
-
-
-class WalletBalanceInline(admin.TabularInline):
-    """
-    Inline admin for WalletBalance within the Wallet admin.
-    """
-    model = WalletBalance
-    extra = 0
-    fields = ('asset_symbol', 'total_balance', 'available_balance', 'in_order_balance')
-
-
-class OrderHistoryInline(admin.TabularInline):
-    """
-    Inline admin for OrderHistory within the ExchangeAccount admin.
-    """
-    model = OrderHistory
-    extra = 0
-    fields = ('order_id', 'symbol', 'side', 'order_type', 'status', 'price', 'quantity', 'time_placed')
-    readonly_fields = ('time_placed',) # معمولاً زمان خودکار ثبت می‌شود
-    can_delete = False # تاریخچه سفارشات حذف نمی‌شوند
-
-
+# --- مدیریت مدل Exchange ---
 @admin.register(Exchange)
 class ExchangeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'type', 'is_active', 'is_sandbox', 'rate_limit_per_second')
-    list_filter = ('type', 'is_active', 'is_sandbox')
+    list_display = ('name', 'code', 'type', 'is_active', 'is_sandbox', 'rate_limit_per_second', 'created_at', 'updated_at')
+    list_filter = ('type', 'is_active', 'is_sandbox', 'created_at', 'updated_at')
     search_fields = ('name', 'code')
-    readonly_fields = ('created_at', 'updated_at') # اگر از BaseModel ارث می‌برد
+    readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (None, {
-            'fields': ('name', 'code', 'type', 'is_active')
+            'fields': ('name', 'code', 'type', 'is_active', 'is_sandbox')
         }),
         ('API Information', {
             'fields': ('base_url', 'ws_url', 'api_docs_url'),
@@ -81,117 +39,194 @@ class ExchangeAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('Meta', {
-            'fields': ('is_sandbox', 'created_at', 'updated_at'),
+            'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
 
+# --- مدیریت مدل ExchangeAccount ---
+class LinkedBotsInline(admin.TabularInline):
+    """
+    Inline admin for managing linked bots within the ExchangeAccount admin.
+    """
+    model = ExchangeAccount.linked_bots.through # M2M relation
+    extra = 0
+    raw_id_fields = ('tradingbot',) # برای انتخاب کارآمد
 
 @admin.register(ExchangeAccount)
 class ExchangeAccountAdmin(admin.ModelAdmin):
-    list_display = ('user_email', 'exchange', 'label', 'is_active', 'is_paper_trading', 'last_sync_at')
-    list_filter = ('exchange', 'is_active', 'is_paper_trading')
-    search_fields = ('user__email', 'label', 'exchange__name')
-    raw_id_fields = ('user', 'exchange') # برای انتخاب کاربر و صرافی از طریق جستجو
-    readonly_fields = ('created_at', 'updated_at', 'last_sync_at')
-    inlines = [WalletInline, OrderHistoryInline] # نمایش والتس و سفارشات به صورت درون‌خطی
-
-    def user_email(self, obj):
-        return obj.user.email
-    user_email.short_description = 'User Email'
-    user_email.admin_order_field = 'user__email' # امکان مرتب‌سازی
-
+    list_display = ('owner_email_link', 'exchange_name', 'label', 'is_active', 'is_paper_trading', 'last_sync_at', 'created_at', 'updated_at')
+    list_filter = ('exchange', 'is_active', 'is_paper_trading', 'last_sync_at', 'created_at', 'owner')
+    search_fields = ('owner__email', 'label', 'exchange__name', 'exchange_symbol')
+    readonly_fields = ('owner', 'created_at', 'updated_at', 'last_sync_at', '_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv') # کلیدهای رمزنگاری شده فقط خواندنی
+    raw_id_fields = ('owner', 'exchange') # برای انتخاب کارآمد
+    inlines = [LinkedBotsInline] # اضافه کردن inline مدیریت بات‌ها
     fieldsets = (
         (None, {
-            'fields': ('user', 'exchange', 'label', 'is_active', 'is_paper_trading')
+            'fields': ('owner', 'exchange', 'label', 'is_active', 'is_paper_trading')
         }),
         ('Security & Credentials', {
-            'fields': ('encrypted_key_iv', 'extra_credentials'), # فقط IV و اطلاعات اضافی، نه کلیدها
+            'fields': ('_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv', 'extra_credentials'),
             'classes': ('collapse',)
         }),
-        ('Account Info (Read Only)', {
+        ('Account Info', {
             'fields': ('account_info', 'trading_permissions'),
             'classes': ('collapse',)
         }),
+        ('Security', {
+            'fields': ('last_login_ip', 'created_ip'),
+        }),
         ('Meta', {
-            'fields': ('last_login_ip', 'created_ip', 'last_sync_at', 'created_at', 'updated_at'),
+            'fields': ('created_at', 'updated_at', 'last_sync_at'),
             'classes': ('collapse',)
         }),
     )
 
+    def owner_email_link(self, obj):
+        """
+        Creates a link to the owner's admin page.
+        """
+        if obj.owner:
+            url = reverse("admin:accounts_customuser_change", args=[obj.owner.id]) # فرض: اپلیکیشن accounts، مدل CustomUser
+            return format_html('<a href="{}">{}</a>', url, obj.owner.email)
+        return "-"
+    owner_email_link.short_description = 'Owner Email'
+    owner_email_link.admin_order_field = 'owner__email'
 
+    def exchange_name(self, obj):
+        """
+        Displays the exchange name.
+        """
+        return obj.exchange.name
+    exchange_name.short_description = 'Exchange'
+    exchange_name.admin_order_field = 'exchange__name'
+
+# --- مدیریت مدل Wallet ---
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
-    list_display = ('exchange_account_label', 'wallet_type', 'description', 'is_default', 'leverage')
-    list_filter = ('wallet_type', 'is_default')
-    search_fields = ('exchange_account__label', 'exchange_account__user__email', 'description')
+    list_display = ('exchange_account_owner_email', 'exchange_account_label', 'wallet_type', 'is_default', 'is_margin_enabled', 'leverage', 'created_at', 'updated_at')
+    list_filter = ('wallet_type', 'is_default', 'is_margin_enabled', 'exchange_account__exchange', 'created_at', 'exchange_account__owner')
+    search_fields = ('exchange_account__label', 'exchange_account__owner__email', 'wallet_type')
+    readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('exchange_account',)
-    inlines = [WalletBalanceInline]
+
+    def exchange_account_owner_email(self, obj):
+        """
+        Displays the owner's email of the related exchange account.
+        """
+        return obj.exchange_account.owner.email
+    exchange_account_owner_email.short_description = 'Account Owner'
+    exchange_account_owner_email.admin_order_field = 'exchange_account__owner__email'
 
     def exchange_account_label(self, obj):
-        return obj.exchange_account.label or "No Label"
+        """
+        Displays the label of the related exchange account.
+        """
+        return obj.exchange_account.label
     exchange_account_label.short_description = 'Account Label'
     exchange_account_label.admin_order_field = 'exchange_account__label'
 
-
+# --- مدیریت مدل WalletBalance ---
 @admin.register(WalletBalance)
 class WalletBalanceAdmin(admin.ModelAdmin):
-    list_display = ('wallet_repr', 'asset_symbol', 'total_balance', 'available_balance', 'updated_at')
-    list_filter = ('asset_symbol', 'wallet__exchange_account__exchange') # فیلتر بر اساس صرافی
-    search_fields = ('wallet__exchange_account__label', 'asset_symbol')
+    list_display = ('wallet_repr', 'asset_symbol', 'total_balance', 'available_balance', 'in_order_balance', 'frozen_balance', 'created_at', 'updated_at')
+    list_filter = ('asset_symbol', 'wallet__exchange_account__exchange', 'created_at', 'updated_at')
+    search_fields = ('wallet__exchange_account__label', 'asset_symbol', 'wallet__exchange_account__owner__email')
+    readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('wallet',)
-    list_per_page = 20 # تعداد رکوردها در هر صفحه
+    ordering = ['-created_at']
 
     def wallet_repr(self, obj):
+        """
+        Displays a summary of the wallet.
+        """
         return f"{obj.wallet.exchange_account.label} - {obj.wallet.wallet_type}"
     wallet_repr.short_description = 'Wallet (Account - Type)'
 
-
+# --- مدیریت مدل AggregatedPortfolio ---
 @admin.register(AggregatedPortfolio)
 class AggregatedPortfolioAdmin(admin.ModelAdmin):
-    list_display = ('user_email', 'base_currency', 'total_equity', 'total_unrealized_pnl', 'updated_at')
-    search_fields = ('user__email',)
-    raw_id_fields = ('user',)
-    readonly_fields = ('created_at', 'updated_at')
+    list_display = ('owner_email_link', 'base_currency', 'total_equity', 'total_unrealized_pnl', 'total_pnl_percentage', 'last_valuation_at', 'created_at', 'updated_at')
+    list_filter = ('base_currency', 'last_valuation_at', 'created_at', 'owner')
+    search_fields = ('owner__email',)
+    readonly_fields = ('owner', 'created_at', 'updated_at')
+    raw_id_fields = ('owner',)
 
-    def user_email(self, obj):
-        return obj.user.email
-    user_email.short_description = 'User Email'
+    def owner_email_link(self, obj):
+        """
+        Creates a link to the owner's admin page.
+        """
+        if obj.owner:
+            url = reverse("admin:accounts_customuser_change", args=[obj.owner.id])
+            return format_html('<a href="{}">{}</a>', url, obj.owner.email)
+        return "-"
+    owner_email_link.short_description = 'Owner Email'
+    owner_email_link.admin_order_field = 'owner__email'
 
-
+# --- مدیریت مدل AggregatedAssetPosition ---
 @admin.register(AggregatedAssetPosition)
 class AggregatedAssetPositionAdmin(admin.ModelAdmin):
-    list_display = ('aggregated_portfolio_user', 'asset_symbol', 'total_quantity', 'total_value_in_base_currency')
-    list_filter = ('asset_symbol',)
-    search_fields = ('aggregated_portfolio__user__email', 'asset_symbol')
+    list_display = ('portfolio_owner_email', 'asset_symbol', 'total_quantity', 'total_value_in_base_currency', 'created_at', 'updated_at')
+    list_filter = ('asset_symbol', 'aggregated_portfolio__base_currency', 'created_at', 'updated_at', 'aggregated_portfolio__owner')
+    search_fields = ('aggregated_portfolio__owner__email', 'asset_symbol')
+    readonly_fields = ('created_at', 'updated_at')
     raw_id_fields = ('aggregated_portfolio',)
 
-    def aggregated_portfolio_user(self, obj):
-        return obj.aggregated_portfolio.user.email
-    aggregated_portfolio_user.short_description = 'Portfolio User'
+    def portfolio_owner_email(self, obj):
+        """
+        Displays the owner's email of the related aggregated portfolio.
+        """
+        return obj.aggregated_portfolio.owner.email
+    portfolio_owner_email.short_description = 'Portfolio Owner'
+    portfolio_owner_email.admin_order_field = 'aggregated_portfolio__owner__email'
 
-
+# --- مدیریت مدل OrderHistory ---
 @admin.register(OrderHistory)
 class OrderHistoryAdmin(admin.ModelAdmin):
-    list_display = ('exchange_account_label', 'order_id', 'symbol', 'side', 'order_type', 'status', 'price', 'quantity', 'time_placed')
-    list_filter = ('status', 'side', 'order_type', 'exchange_account__exchange', 'time_placed')
-    search_fields = ('order_id', 'symbol', 'exchange_account__label', 'exchange_account__user__email')
-    raw_id_fields = ('exchange_account', 'trading_bot') # اگر trading_bot وجود داشته باشد
-    readonly_fields = ('time_placed', 'time_updated')
-    date_hierarchy = 'time_placed' # امکان مرتب‌سازی بر اساس تاریخ
+    list_display = ('exchange_account_owner_email', 'exchange_account_label', 'order_id', 'symbol', 'side', 'order_type', 'status', 'price', 'quantity', 'time_placed', 'time_updated')
+    list_filter = ('status', 'side', 'order_type', 'symbol', 'time_placed', 'time_updated', 'exchange_account__exchange', 'exchange_account__owner')
+    search_fields = ('order_id', 'symbol', 'exchange_account__label', 'exchange_account__owner__email')
+    readonly_fields = ('created_at', 'updated_at')
+    raw_id_fields = ('exchange_account', 'trading_bot')
+    date_hierarchy = 'time_placed'
+    ordering = ['-time_placed']
+
+    def exchange_account_owner_email(self, obj):
+        return obj.exchange_account.owner.email
+    exchange_account_owner_email.short_description = 'Account Owner'
+    exchange_account_owner_email.admin_order_field = 'exchange_account__owner__email'
 
     def exchange_account_label(self, obj):
-        return obj.exchange_account.label or "No Label"
+        return obj.exchange_account.label
     exchange_account_label.short_description = 'Account Label'
+    exchange_account_label.admin_order_field = 'exchange_account__label'
 
-
+# --- مدیریت مدل MarketDataCandle ---
 @admin.register(MarketDataCandle)
 class MarketDataCandleAdmin(admin.ModelAdmin):
-    list_display = ('exchange', 'symbol', 'interval', 'open_time', 'open', 'high', 'low', 'close')
-    list_filter = ('exchange', 'symbol', 'interval', 'open_time')
+    list_display = ('exchange_name', 'symbol', 'interval', 'open_time', 'open', 'high', 'low', 'close', 'volume')
+    list_filter = ('exchange', 'symbol', 'interval', 'open_time', 'created_at')
     search_fields = ('symbol', 'exchange__name')
     readonly_fields = ('created_at', 'updated_at')
+    raw_id_fields = ('exchange',)
     date_hierarchy = 'open_time'
-    list_per_page = 50
+    ordering = ['-open_time']
+    list_per_page = 50 # تعداد نمایش در هر صفحه
 
-    # ممکن است بخواهید فیلدهایی مانند 'number_of_trades' را نیز در list_display اضافه کنید
+    def exchange_name(self, obj):
+        return obj.exchange.name
+    exchange_name.short_description = 'Exchange'
+    exchange_name.admin_order_field = 'exchange__name'
+
+# --- سایر مدیریت‌های مدل (اگر وجود داشتند) ---
+# می‌توانید برای سایر مدل‌هایی که در exchanges/models.py تعریف می‌کنید نیز ModelAdmin بنویسید
+# مثلاً اگر مدل ExchangeConnectionLog وجود داشت:
+# @admin.register(ExchangeConnectionLog)
+# class ExchangeConnectionLogAdmin(admin.ModelAdmin):
+#     list_display = ('exchange_account', 'status', 'reason', 'connected_at', 'disconnected_at')
+#     list_filter = ('status', 'connected_at', 'disconnected_at')
+#     search_fields = ('exchange_account__label', 'reason')
+#     readonly_fields = ('connected_at', 'disconnected_at')
+#     raw_id_fields = ('exchange_account',)
+
+logger.info("Exchanges admin interfaces loaded successfully.")

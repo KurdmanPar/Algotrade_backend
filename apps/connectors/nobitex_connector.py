@@ -63,7 +63,7 @@
 
 #############################################
 
-# apps/connectors/nobitex_connector.py
+# apps/connectors/exchange_nobitex_connector.py
 from .connector_interface import IExchangeConnector
 import aiohttp
 import asyncio

@@ -84,7 +84,7 @@
 
 ######################################
 
-# apps/connectors/binance_connector.py
+# apps/connectors/exchange_binance_connector.py
 import json
 import websockets
 from .connector_interface import IExchangeConnector

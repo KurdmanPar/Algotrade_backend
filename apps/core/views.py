@@ -1,23 +1,13 @@
-ممنون بابت تأیید. اکنون که فایل `apps/core/serializers.py` ایجاد یا ارتقا یافته است، نوبت به فایل بعدی در ساختار اپلیکیشن `core` می‌رسد.
-
-پس از `serializers.py`، یکی از فایل‌های کلیدی بعدی که معمولاً در یک اپلیکیشن `Django` ایجاد یا ارتقا می‌یابد، فایل `views.py` است. این فایل مسئولیت تعریف **نماها (Views)** را دارد. نماها منطق درخواست/پاسخ (Request/Response) را پیاده‌سازی می‌کنند. در یک سیستم معاملات الگوریتمی مبتنی بر MAS، نماها باید به گونه‌ای طراحی شوند که امکان تعامل ایمن و کارآمد با سایر بخش‌های سیستم (مثل `agents`, `bots`, `strategies`) را فراهم آورند، ضمن رعایت امنیت، عملکرد و استانداردهای RESTful. این نماها باید از سریالایزرها و اجازه‌نامه‌های اپلیکیشن `core` و سایر اپلیکیشن‌های مرتبط (مثل `instruments`, `accounts`) استفاده کنند.
-
----
-
-### 5. فایل `apps/core/views.py` (ارتقا یافته)
-
-```python
 # apps/core/views.py
 
-from rest_framework import viewsets, permissions, status, generics
-from rest_framework.decorators import action
+from rest_framework import viewsets, permissions, generics, status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
-from django.db.models import Q
 from django.conf import settings
-import logging
+from django.contrib.auth import get_user_model
 from .models import (
     BaseModel,
     BaseOwnedModel,
@@ -25,6 +15,19 @@ from .models import (
     AuditLog,
     SystemSetting,
     CacheEntry,
+    # سایر مدل‌های احتمالی core
+    # InstrumentGroup,
+    # InstrumentCategory,
+    # Instrument,
+    # InstrumentExchangeMap,
+    # IndicatorGroup,
+    # Indicator,
+    # IndicatorParameter,
+    # IndicatorTemplate,
+    # PriceActionPattern,
+    # SmartMoneyConcept,
+    # AIMetric,
+    # InstrumentWatchlist,
 )
 from .serializers import (
     CoreBaseSerializer,
@@ -33,19 +36,23 @@ from .serializers import (
     AuditLogSerializer,
     SystemSettingSerializer,
     CacheEntrySerializer,
+    # BaseReadSerializer,
+    # BaseWriteSerializer,
+    # سایر سریالایزرهایی که در core تعریف کرده‌اید
 )
-from .permissions import IsOwnerOrReadOnly, IsOwnerOfRelatedObject, IsAdminUserOrReadOnly, IsVerifiedUser, IsPublicOrOwner
+from .permissions import IsOwnerOrReadOnly, IsOwnerOfRelatedObject, IsAdminUserOrReadOnly, IsVerifiedUser, IsPublicOrOwner, IsOwnerOfWatchlist
 from .exceptions import CoreSystemException, DataIntegrityException, ConfigurationError
 from .services import CoreService, AuditService, SecurityService
 from .helpers import get_client_ip, generate_device_fingerprint
-from apps.accounts.models import CustomUser # فرض بر این است که مدل وجود دارد
-from apps.instruments.models import Instrument # فرض بر این است که مدل وجود دارد
-from apps.exchanges.models import Exchange # فرض بر این است که مدل وجود دارد
+from apps.accounts.models import CustomUser # فرض بر این است که مدل کاربر وجود دارد
+from apps.instruments.models import Instrument # فرض بر این است که مدل نماد وجود دارد
+from apps.exchanges.models import Exchange # فرض بر این است که مدل صرافی وجود دارد
+from apps.bots.models import TradingBot # فرض بر این است که مدل بات وجود دارد
+from apps.risk.models import RiskRule # فرض بر این است که مدل قانون ریسک وجود دارد
 
-logger = logging.getLogger(__name__)
+User = get_user_model()
 
 # --- نماهای عمومی (Public Views) ---
-
 class HealthCheckView(APIView):
     """
     نمای ساده برای چک کردن سلامت سیستم.
@@ -71,7 +78,6 @@ class PingView(APIView):
         client_ip = get_client_ip(request)
         return Response({"pong": timezone.now(), "client_ip": client_ip}, status=status.HTTP_200_OK)
 
-
 # --- نماهای پایه (Base Views) ---
 
 class SecureModelViewSet(viewsets.ModelViewSet):
@@ -79,7 +85,7 @@ class SecureModelViewSet(viewsets.ModelViewSet):
     ViewSet پایه امن برای مدل‌هایی که دارای فیلدهای زمان‌بندی و مالکیت هستند.
     این ViewSet از اجازه‌نامه‌های پایه و فیلترهای مشترک استفاده می‌کند.
     """
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
     filter_backends = [DjangoFilterBackend]
 
     def get_queryset(self):
@@ -134,7 +140,6 @@ class SecureModelViewSet(viewsets.ModelViewSet):
                  logger.warning(f"Unauthorized attempt to delete object {instance.id} by user {self.request.user.id}")
                  raise PermissionDenied("You do not own this object.")
         instance.delete()
-
 
 class SecureReadOnlyModelViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -199,7 +204,7 @@ class SystemSettingViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['key', 'is_sensitive', 'data_type']
 
-    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAdminUser])
     def get_value(self, request):
         """
         اندپوینت برای گرفتن مقدار یک تنظیم خاص.
@@ -272,7 +277,6 @@ class CacheEntryViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(expired_entries, many=True)
         return Response(serializer.data)
 
-
 # --- نماهای عمومی ---
 class SystemStatusView(APIView):
     """
@@ -341,7 +345,7 @@ class AgentInteractionView(APIView):
             logger.error(f"Error processing agent event from {agent_id}: {str(e)}")
             return Response({"error": "Failed to process agent event."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# --- نماهای جستجو ---
+# --- نماهای مرتبط با جستجو ---
 class GlobalSearchView(APIView):
     """
     نمای جستجوی عمومی برای چندین مدل (مثلاً Instrument, Strategy, User).
@@ -390,7 +394,7 @@ class GlobalSearchView(APIView):
         # جستجو در Exchange (اگر اپلیکیشن exchanges وجود داشت)
         try:
             exchanges = Exchange.objects.filter(
-                Q(name__icontains=query) | Q(code__iexact=query),
+                Q(name__icontains=query) | Q(code__icontains=query),
                 is_active=True
             )[:5]
             for exch in exchanges:
@@ -403,8 +407,36 @@ class GlobalSearchView(APIView):
         except ImportError:
             pass
 
+        # جستجو در Strategy (اگر اپلیکیشن strategies وجود داشت)
+        # try:
+        #     from apps.strategies.models import Strategy
+        #     strategies = Strategy.objects.filter(name__icontains=query, is_active=True)[:5]
+        #     for strat in strategies:
+        #          results.append({
+        #              'type': 'strategy',
+        #              'id': str(strat.id),
+        #              'name': str(strat),
+        #              'url': f'/strategies/{strat.id}/'
+        #          })
+        # except ImportError:
+        #     pass
+
+        # جستجو در TradingBot (اگر اپلیکیشن bots وجود داشت)
+        # try:
+        #     from apps.bots.models import TradingBot
+        #     bots = TradingBot.objects.filter(name__icontains=query, is_active=True)[:5]
+        #     for bot in bots:
+        #          results.append({
+        #              'type': 'bot',
+        #              'id': str(bot.id),
+        #              'name': str(bot),
+        #              'url': f'/bots/{bot.id}/'
+        #          })
+        # except ImportError:
+        #     pass
+
         # سایر مدل‌ها ...
 
         return Response({"results": results}, status=status.HTTP_200_OK)
 
-```
+logger.info("Core views loaded successfully.")

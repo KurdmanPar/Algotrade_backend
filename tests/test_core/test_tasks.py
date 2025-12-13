@@ -11,28 +11,68 @@ from apps.core.models import (
     CacheEntry,
 )
 from apps.core.tasks import (
+    log_audit_event_task,
     send_verification_email_task,
     send_password_reset_email_task,
     send_2fa_codes_task,
-    log_audit_event_task,
     cleanup_expired_cache_entries_task,
-    cleanup_expired_system_settings_task, # فرض: یک تاسک مشابه برای SystemSetting وجود دارد
+    cleanup_expired_system_settings_task,
     # سایر تاسک‌های شما
 )
-from apps.accounts.factories import CustomUserFactory
+from apps.accounts.factories import CustomUserFactory # فرض بر این است که فکتوری وجود دارد
 from apps.core.factories import (
     AuditLogFactory,
     SystemSettingFactory,
     CacheEntryFactory,
+)
+from apps.core.exceptions import (
+    CoreSystemException,
+    DataIntegrityException,
+    ConfigurationError,
+    # سایر استثناهای شما
 )
 
 pytestmark = pytest.mark.django_db
 
 class TestCoreTasks:
     """
-    Test suite for the Celery tasks in the core app.
+    Test suite for the Celery tasks defined in apps/core/tasks.py.
     These tests often involve mocking external services (like email sending, cache backend).
     """
+
+    @patch('apps.core.tasks.AuditService.log_event') # فرض بر این است که AuditService وجود دارد
+    def test_log_audit_event_task_calls_service(self, mock_audit_service_log, CustomUserFactory):
+        """
+        Test that the log_audit_event_task correctly calls the AuditService.
+        """
+        user = CustomUserFactory()
+        action = 'USER_LOGIN'
+        target_model_name = 'CustomUser'
+        target_id = user.id
+        details = {'ip': '127.0.0.1'}
+        ip_address = '127.0.0.1'
+        user_agent = 'Test-Agent'
+
+        log_audit_event_task.delay(
+            user_id=user.id,
+            action=action,
+            target_model_name=target_model_name,
+            target_id=target_id,
+            details=details,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        mock_audit_service_log.assert_called_once_with(
+            user=user,
+            action=action,
+            target_model_name=target_model_name,
+            target_id=target_id,
+            details=details,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            request=None # چون request در تاسک وجود ندارد
+        )
 
     @patch('apps.core.tasks.EmailMultiAlternatives.send')
     def test_send_verification_email_task(self, mock_email_send, CustomUserFactory):
@@ -43,8 +83,7 @@ class TestCoreTasks:
         user = CustomUserFactory(email='test@example.com')
         token = 'mock_token_123'
 
-        # فرض بر این است که فایل‌های قالب وجود دارند
-        send_verification_email_task(user.id, token)
+        send_verification_email_task.delay(user.id, token)
 
         # چک کردن اینکه آیا تابع ارسال ایمیل فراخوانی شده است
         mock_email_send.assert_called_once()
@@ -62,7 +101,7 @@ class TestCoreTasks:
         user = CustomUserFactory(email='reset@example.com')
         token = 'reset_token_456'
 
-        send_password_reset_email_task(user.id, token)
+        send_password_reset_email_task.delay(user.id, token)
 
         mock_email_send.assert_called_once()
         assert len(mail.outbox) == 1
@@ -78,7 +117,7 @@ class TestCoreTasks:
         user = CustomUserFactory(email='2fa@example.com')
         codes = ['CODE1234', 'CODE5678']
 
-        send_2fa_codes_task(user.id, codes)
+        send_2fa_codes_task.delay(user.id, codes)
 
         mock_email_send.assert_called_once()
         assert len(mail.outbox) == 1
@@ -89,39 +128,27 @@ class TestCoreTasks:
         for code in codes:
             assert code in sent_email.body
 
-    def test_log_audit_event_task(self, CustomUserFactory):
+    @patch('django.core.cache.cache.delete')
+    def test_invalidate_cache_key_task(self, mock_cache_delete):
         """
-        Test the log_audit_event_task.
+        Test the invalidate_cache_key_task.
         """
-        user = CustomUserFactory()
-        action = 'TEST_ACTION'
-        target_model = 'CustomUser'
-        target_id = user.id
-        details = {'param': 'value'}
-        ip_address = '127.0.0.1'
-        user_agent = 'Test Agent'
+        key = 'test_cache_key_to_invalidate'
 
-        log_audit_event_task(user.id, action, target_model, target_id, details, ip_address, user_agent)
+        invalidate_cache_key_task.delay(key)
 
-        # چک کردن اینکه آیا ورودی AuditLog ایجاد شده است
-        assert AuditLog.objects.filter(
-            user=user,
-            action=action,
-            target_model=target_model,
-            target_id=target_id
-        ).exists()
+        # چک کردن حذف از کش خارجی
+        mock_cache_delete.assert_called_once_with(key)
 
-        log_entry = AuditLog.objects.get(user=user, action=action)
-        assert log_entry.details == details
-        assert log_entry.ip_address == ip_address
-        assert log_entry.user_agent == user_agent
+        # اطمینان از اینکه ورودی DB نیز حذف شده است
+        assert not CacheEntry.objects.filter(key=key).exists()
 
     def test_cleanup_expired_cache_entries_task(self, CacheEntryFactory):
         """
         Test the cleanup_expired_cache_entries_task.
         """
-        # ایجاد چند ورودی کش: یکی منقضی شده، یکی فعال، یکی بدون انقضا
         now = timezone.now()
+        # ایجاد چند ورودی کش: یکی منقضی شده، یکی فعال، یکی بدون انقضا
         expired_entry = CacheEntryFactory(expires_at=now - timezone.timedelta(minutes=1))
         active_entry = CacheEntryFactory(expires_at=now + timezone.timedelta(hours=1))
         no_expiry_entry = CacheEntryFactory(expires_at=None)
@@ -129,7 +156,7 @@ class TestCoreTasks:
         # اطمینان از اینکه قبل از تاسک، هر سه وجود دارند
         assert CacheEntry.objects.count() == 3
 
-        cleanup_expired_cache_entries_task()
+        cleanup_expired_cache_entries_task.delay()
 
         # چک کردن اینکه فقط ورودی منقضی شده حذف شده است
         assert not CacheEntry.objects.filter(id=expired_entry.id).exists()
@@ -149,45 +176,56 @@ class TestCoreTasks:
 
         assert SystemSetting.objects.count() == 3
 
-        cleanup_expired_system_settings_task()
+        cleanup_expired_system_settings_task.delay()
 
         assert not SystemSetting.objects.filter(id=expired_setting.id).exists()
         assert SystemSetting.objects.filter(id=active_setting.id).exists()
         assert SystemSetting.objects.filter(id=no_expiry_setting.id).exists()
         assert SystemSetting.objects.count() == 2
 
-    # --- تست تاسک‌های سفارشی ---
-    # مثال: اگر تاسک send_security_alert_task وجود داشت
-    # @patch('apps.core.tasks.EmailMultiAlternatives.send')
-    # def test_send_security_alert_task(self, mock_email_send, CustomUserFactory):
-    #     user = CustomUserFactory(email='alert@example.com')
-    #     message = 'Suspicious activity detected!'
-    #
-    #     send_security_alert_task(user.id, message)
-    #
-    #     mock_email_send.assert_called_once()
-    #     assert len(mail.outbox) == 1
-    #     sent_email = mail.outbox[0]
-    #     assert user.email in sent_email.to
-    #     assert message in sent_email.body
-    #     assert 'Security Alert' in sent_email.subject
-
     # --- تست تاسک‌هایی که ممکن است خطا داشته باشند ---
-    def test_task_handles_missing_user(self):
+    def test_task_handles_missing_user(self, caplog):
         """
         Test that a task gracefully handles a situation where the user does not exist.
         """
         non_existent_user_id = 999999
 
         # فرض: تاسک log_audit_event_task اگر user.id وجود نداشت، خطایی ایجاد می‌کند یا فقط لاگ می‌کند
-        # این بستگی به نحوه پیاده‌سازی تاسک دارد
-        # ممکن است نیاز به استفاده از pytest raises داشته باشیم
-        # with pytest.raises(CustomUser.DoesNotExist): # اگر به صورت مستقیم فریاد بزند
-        #    log_audit_event_task(non_existent_user_id, 'SOME_ACTION', 'User', 1, {})
-        # یا اگر فقط لاگ کند:
-        # log_audit_event_task(non_existent_user_id, 'SOME_ACTION', 'User', 1, {})
-        # assert "does not exist" in caplog.text # اگر از caplog استفاده کنیم
-        pass # تست واقعی بستگی به منطق داخل تاسک دارد
+        with caplog.at_level(logging.ERROR):
+            log_audit_event_task.delay(
+                user_id=non_existent_user_id,
+                action='SOME_ACTION',
+                target_model_name='User',
+                target_id=1,
+                details={},
+                ip_address='127.0.0.1',
+                user_agent='Test-Agent'
+            )
+
+        # چک کردن اینکه آیا خطایی در لاگ ثبت شده است
+        assert "User with id 999999 does not exist" in caplog.text # یا متن دقیق پیام خطا
+        # یا اینکه فقط چک می‌کنیم که خطا رخ نداده (اگر خطای وجود نداشتن کاربر در تاسک مدیریت شود)
+        # assert "error" not in caplog.text
+
+    def test_task_handles_missing_cache_entry_for_invalidation(self, caplog):
+        """
+        Test that invalidate_cache_key_task gracefully handles a missing cache entry in DB.
+        """
+        key = 'non_existent_cache_key'
+        assert not CacheEntry.objects.filter(key=key).exists()
+
+        with caplog.at_level(logging.WARNING): # یا INFO بسته به نحوه لاگ در تاسک
+            invalidate_cache_key_task.delay(key)
+
+        # چک کردن اینکه آیا پیام مناسب در لاگ چاپ شده است
+        # این فقط زمانی معنی دارد که تاسک در صورت عدم وجود ورودی DB، چیزی را لاگ کند
+        # assert f"No DB cache entry found for key '{key}' to invalidate." in caplog.text
+        # در تاسک ما، فقط کش خارجی حذف می‌شود. اگر ورودی DB وجود نداشت، هیچ کاری نمی‌کند و خطایی نمی‌دهد.
+        # بنابراین، لاگ ممکن است فقط در صورتی ایجاد شود که ورودی DB وجود داشته و حذف شده باشد.
+        # از آنجا که ورودی وجود نداشت، فقط کش خارجی حذف می‌شود و هیچ خروجی خطا نمی‌دهد.
+        # پس این تست فقط در صورتی معنی دارد که تاسک منطقی برای لاگ کردن عدم وجود DB داشته باشد.
+        # در اینجا، فقط چک می‌کنیم که تاسک بدون خطا اجرا شود.
+        # assert "No DB cache entry found" in caplog.text # فقط اگر تاسک این لاگ را داشت
 
     # --- تست تاسک‌هایی با retry ---
     # مثال: اگر تاسکی با autoretry_for بود
@@ -195,8 +233,15 @@ class TestCoreTasks:
     # def test_task_with_retry_logic(self, mock_external_call):
     #     mock_external_call.side_effect = [Exception("Temp failure"), None] # اول شکست، بعد موفقیت
     #     # تاسک را فراخوانی کنید
-    #     # ببینید چه اتفاقی می‌افتد (مثلاً چند بار فراخوانی می‌شود یا نه)
-    #     # این نیازمند جزئیات بیشتری از نحوه پیاده‌سازی Celery در پروژه است
-    #     pass
+    #     # task_instance = some_task_with_retry.signature(args=[...]).apply()
+    #     # assert mock_external_call.call_count == 2 # یک بار اول اجرا، یک بار دوباره
+    #     pass # تست واقعی نیازمند جزئیات پیاده‌سازی Celery در پروژه است
+
+# --- تست سایر تاسک‌های Core ---
+# می‌توانید برای سایر تاسک‌هایی که در apps/core/tasks.py تعریف می‌کنید نیز تست بنویسید
+# مثلاً اگر تاسکی برای مدیریت کاربران وجود داشت:
+# class TestUserManagementTasks:
+#     def test_something(self):
+#         # ...
 
 logger.info("Core task tests loaded successfully.")

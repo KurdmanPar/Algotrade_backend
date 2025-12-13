@@ -21,7 +21,7 @@ from apps.core.exceptions import (
     # سایر استثناهای سفارشی core
 )
 
-#pytestmark = pytest.mark.django_db # Exceptions تست نیازی به پایگاه داده ندارد
+#pytestmark = pytest.mark.django_db # تست استثناها معمولاً نیازی به پایگاه داده ندارد
 
 
 class TestCoreSystemException:

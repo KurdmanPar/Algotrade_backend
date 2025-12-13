@@ -1,9 +1,9 @@
 # apps/exchanges/serializers.py
 
 from rest_framework import serializers
-from django.utils import timezone
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils.translation import gettext_lazy as _
+from django.core.validators import URLValidator
 from .models import (
     Exchange,
     ExchangeAccount,
@@ -14,28 +14,67 @@ from .models import (
     OrderHistory,
     MarketDataCandle,
 )
-from apps.core.models import BaseOwnedModel # import برای بررسی ارث‌بری
-from apps.core.helpers import validate_ip_list, mask_sensitive_data # import از core
-from apps.core.exceptions import CoreSystemException, SecurityException # import از core
-from apps.bots.models import TradingBot # import از اپلیکیشن دیگر
-from apps.accounts.models import CustomUser # import از اپلیکیشن دیگر
-from apps.instruments.models import Instrument # import از اپلیکیشن دیگر
-from apps.exchanges.models import InstrumentExchangeMap # import از این اپلیکیشن (اگر وجود داشته باشد)
+from apps.core.serializers import CoreBaseSerializer, CoreOwnedModelSerializer # استفاده از سریالایزرهای پایه core
+from apps.core.helpers import validate_ip_list # استفاده از تابع کمکی core
+from apps.core.exceptions import DataIntegrityException # استفاده از استثناهای core
+from apps.accounts.models import CustomUser # اطمینان از وجود مدل کاربر
+from apps.bots.models import TradingBot # اطمینان از وجود مدل بات
+from apps.exchanges.models import InstrumentExchangeMap # import از این اپلیکیشن (اگر نیاز باشد)
 from decimal import Decimal
 import logging
 
 logger = logging.getLogger(__name__)
 
-class ExchangeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Exchange
-        fields = '__all__'
-        # اطمینان از اینکه فیلدهای پایه از BaseModel (id, created_at, updated_at) نیز گرفته شوند
-
-
-class ExchangeAccountSerializer(serializers.ModelSerializer):
+class ExchangeSerializer(CoreBaseSerializer): # ارث از CoreBaseSerializer
     """
-    Serializer for ExchangeAccount model.
+    Serializer for the Exchange model.
+    Uses CoreBaseSerializer for common fields like id, created_at, updated_at.
+    """
+    class Meta(CoreBaseSerializer.Meta): # ارث از Meta CoreBaseSerializer
+        model = Exchange
+        fields = CoreBaseSerializer.Meta.fields + [ # افزودن فیلدهای خاص Exchange
+            'name', 'code', 'type', 'base_url', 'ws_url', 'api_docs_url',
+            'is_active', 'is_sandbox', 'rate_limit_per_second',
+            'fees_structure', 'limits'
+        ]
+
+    def validate_code(self, value):
+        """
+        Validates the uniqueness of the exchange code (case-insensitive).
+        Note: The constraint is also defined in the model.
+        """
+        if Exchange.objects.filter(code__iexact=value).exclude(pk=self.instance.pk if self.instance else None).exists():
+            raise serializers.ValidationError(_("An exchange with this code already exists."))
+        return value
+
+    def validate_base_url(self, value):
+        """
+        Validates the base_url format using Django's built-in validator.
+        """
+        validator = URLValidator()
+        try:
+            validator(value)
+            return value
+        except DjangoValidationError:
+            raise serializers.ValidationError(_("Enter a valid URL for the base API URL."))
+
+    def validate_ws_url(self, value):
+        """
+        Validates the WebSocket URL format.
+        """
+        if value: # فقط اگر مقداری وجود داشت
+            validator = URLValidator()
+            try:
+                validator(value)
+                return value
+            except DjangoValidationError:
+                raise serializers.ValidationError(_("Enter a valid URL for the WebSocket URL."))
+
+
+class ExchangeAccountSerializer(CoreOwnedModelSerializer): # ارث از CoreOwnedModelSerializer
+    """
+    Serializer for the ExchangeAccount model.
+    Uses CoreOwnedModelSerializer for owner, created_at, updated_at.
     Handles encryption of API keys on creation/update and masking on retrieval.
     """
     # ارتباط با بات‌ها به صورت IDها
@@ -49,43 +88,46 @@ class ExchangeAccountSerializer(serializers.ModelSerializer):
     api_key = serializers.CharField(write_only=True, help_text=_("Plain text API key. Will be encrypted."))
     api_secret = serializers.CharField(write_only=True, help_text=_("Plain text API secret. Will be encrypted."))
 
-    class Meta:
+    # افزودن فیلد برای نمایش نام صرافی
+    exchange_name = serializers.CharField(source='exchange.name', read_only=True)
+
+    class Meta(CoreOwnedModelSerializer.Meta): # ارث از Meta CoreOwnedModelSerializer
         model = ExchangeAccount
-        fields = [
-            'id', 'owner', 'exchange', 'label', 'api_key', 'api_secret', 'extra_credentials',
-            'is_active', 'is_paper_trading', 'last_sync_at', 'last_login_ip', 'created_ip',
-            'account_info', 'trading_permissions', 'linked_bots',
-            # فیلدهای read_only از BaseModel و BaseOwnedModel
-            'created_at', 'updated_at'
+        fields = CoreOwnedModelSerializer.Meta.fields + [ # افزودن فیلدهای خاص ExchangeAccount
+            'exchange', 'exchange_name', 'label',
+            'api_key', 'api_secret', 'extra_credentials',
+            'is_active', 'is_paper_trading', 'last_sync_at',
+            'last_login_ip', 'created_ip',
+            'account_info', 'trading_permissions',
+            'linked_bots',
         ]
-        read_only_fields = ('owner', 'created_at', 'updated_at', 'last_sync_at')
+        read_only_fields = CoreOwnedModelSerializer.Meta.read_only_fields + ('last_sync_at',)
 
     def create(self, validated_data):
         """
         Creates an ExchangeAccount, encrypts API keys, and links bots.
         """
-        user = self.context['request'].user # اطمینان از احراز هویت کاربر در نما
+        # user = self.context['request'].user # این باید در نما انجام شود و در validated_data نباشد
         linked_bots = validated_data.pop('linked_bots', [])
-
-        # اطمینان از اینکه owner از context تنظیم می‌شود، نه از validated_data
-        validated_data['owner'] = user
 
         # گرفتن و رمزنگاری کلیدها
         api_key = validated_data.pop('api_key')
         api_secret = validated_data.pop('api_secret')
 
+        # ایجاد نمونه
         instance = super().create(validated_data)
 
         # اعمال کلیدها (که در مدل از طریق propertyها رمزنگاری می‌شوند)
         instance.api_key = api_key
         instance.api_secret = api_secret
-        instance.save(update_fields=['_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv']) # فقط فیلدهای رمزنگاری شده را ذخیره کن
+        # ذخیره فقط فیلدهای رمزنگاری شده
+        instance.save(update_fields=['_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv'])
 
         # لینک کردن بات‌ها
         if linked_bots:
             instance.linked_bots.set(linked_bots)
 
-        logger.info(f"ExchangeAccount for {instance.exchange.name} created for user {user.email}.")
+        logger.info(f"ExchangeAccount for {instance.exchange.name} created for user {instance.owner.email}.") # تغییر: owner به جای user
         return instance
 
     def update(self, instance, validated_data):
@@ -102,16 +144,17 @@ class ExchangeAccountSerializer(serializers.ModelSerializer):
         if api_secret:
             instance.api_secret = api_secret
 
-        # owner نباید تغییر کند
-        validated_data.pop('owner', None)
+        # owner نباید تغییر کند (که در CoreOwnedModelSerializer از قبل چک می‌شود)
+        # validated_data.pop('owner', None) # این نیز در CoreOwnedModelSerializer انجام می‌شود
 
         instance = super().update(instance, validated_data)
 
         # ذخیره کلیدها اگر تغییر کرده بودند
         update_fields = ['updated_at']
         if api_key or api_secret:
-            update_fields.extend(['_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv'])
-        instance.save(update_fields=update_fields)
+            instance.save(update_fields=['_api_key_encrypted', '_api_secret_encrypted', 'encrypted_key_iv', 'updated_at'])
+        else:
+            instance.save(update_fields=update_fields)
 
         # بات‌ها را بروزرسانی کن
         if linked_bots is not None:
@@ -123,67 +166,115 @@ class ExchangeAccountSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """
         Override to_representation to mask sensitive API key/secret values on read.
+        This is done by not including the write-only fields in the output.
+        The api_key and api_secret fields are write-only, so they won't appear in the JSON output.
         """
         data = super().to_representation(instance)
-        # اگر فیلد api_key در خروجی وجود داشت (که نباید بود، چون write_only است)، مسک کن
-        # اما اگر مدل فیلدی داشت که همیشه نمایش داده می‌شود، باید در مدل یا اینجا مسک شود
-        # از آنجا که api_key و api_secret write_only هستند، در خروجی JSON ظاهر نمی‌شوند
-        # اما اگر فیلد دیگری وجود داشت که نیاز به مسک کردن داشت، اینجا انجام می‌شود
-        # مثلاً اگر فیلدی به نام 'details' وجود داشت که شامل اطلاعات حساس بود
-        # if 'details' in data and any(keyword in instance.key for keyword in ['api', 'key', 'secret']):
+        # چون api_key و api_secret write_only هستند، در خروجی نمایش داده نمی‌شوند.
+        # اما اگر فیلدی وجود داشت که نیاز به مسک کردن داشت (مثلاً یک فیلد 'details' حاوی داده حساس)
+        # if 'details' in data:
         #     data['details'] = mask_sensitive_data(data['details'])
         return data
 
+    def validate(self, attrs):
+        """
+        Validates the ExchangeAccount data.
+        e.g., checks if the exchange is active, validates extra_credentials format.
+        """
+        exchange = attrs.get('exchange')
+        if exchange and not exchange.is_active:
+             raise serializers.ValidationError({'exchange': _("Selected exchange is not active.")})
 
-class WalletSerializer(serializers.ModelSerializer):
+        extra_creds = attrs.get('extra_credentials')
+        if extra_creds:
+            if not isinstance(extra_creds, dict):
+                raise serializers.ValidationError({'extra_credentials': _("Must be a valid JSON object.")})
+            # می‌توانید اعتبارسنجی‌های بیشتری برای ساختار داخل extra_credentials اضافه کنید
+            # مثلاً بررسی وجود فیلدهای خاص یا نوع داده‌ها
+            # required_creds = ['api_key', 'api_secret'] # مثال
+            # for cred in required_creds:
+            #     if cred not in extra_creds:
+            #         raise serializers.ValidationError({'extra_credentials': _(f"Missing required credential: {cred}")})
+
+        # اعتبارسنجی IPهای ورودی (اگر نیاز باشد)
+        created_ip = attrs.get('created_ip')
+        last_login_ip = attrs.get('last_login_ip')
+        if created_ip:
+            if not validate_ip_list(created_ip): # استفاده از تابع کمکی core
+                raise serializers.ValidationError({'created_ip': _("Invalid IP address format.")})
+        if last_login_ip:
+            if not validate_ip_list(last_login_ip): # استفاده از تابع کمکی core
+                raise serializers.ValidationError({'last_login_ip': _("Invalid IP address format.")})
+
+        return attrs
+
+
+class WalletSerializer(CoreBaseSerializer):
     """
-    Serializer for Wallet model.
+    Serializer for the Wallet model.
     """
-    # نمایش اطلاعات مربوط به حساب صرافی
+    # افزودن فیلدهای مربوط به حساب صرافی
     exchange_account_label = serializers.CharField(source='exchange_account.label', read_only=True)
     exchange_name = serializers.CharField(source='exchange_account.exchange.name', read_only=True)
 
-    class Meta:
+    class Meta(CoreBaseSerializer.Meta):
         model = Wallet
-        fields = [
-            'id', 'exchange_account', 'exchange_account_label', 'exchange_name', 'wallet_type', 'description',
-            'is_default', 'is_margin_enabled', 'leverage', 'borrowed_amount',
-            'created_at', 'updated_at'
+        fields = CoreBaseSerializer.Meta.fields + [
+            'exchange_account', 'exchange_account_label', 'exchange_name', 'wallet_type', 'description',
+            'is_default', 'is_margin_enabled', 'leverage', 'borrowed_amount'
         ]
-        read_only_fields = ('created_at', 'updated_at', 'owner') # owner از exchange_account است
 
     def validate_leverage(self, value):
         """
-        Validates the leverage value against the exchange's max_leverage.
+        Validates the leverage value against the exchange's max_leverage (if available).
         This requires accessing the related ExchangeAccount's details, which might need a custom method or view logic.
         For now, a simple check against a global max.
         """
+        # این منطق نیازمند دسترسی به exchange_account دارد که در این مرحله ممکن است در validated_data نباشد
+        # یا فقط در زمان بروزرسانی (instance) قابل دسترسی باشد
+        # مثال ساده:
         if value and value > Decimal('125'): # فرض: حداکثر لوریج جهانی
-            raise ValidationError(_("Leverage cannot exceed 125x."))
+            raise serializers.ValidationError(_("Leverage cannot exceed 125x."))
         return value
 
+    def validate(self, attrs):
+        """
+        Validates wallet-specific data.
+        e.g., checks if margin is enabled only for margin-type wallets.
+        """
+        wallet_type = attrs.get('wallet_type')
+        is_margin_enabled = attrs.get('is_margin_enabled')
+        leverage = attrs.get('leverage')
 
-class WalletBalanceSerializer(serializers.ModelSerializer):
+        if wallet_type not in ['MARGIN', 'ISOLATED_MARGIN'] and is_margin_enabled:
+            raise serializers.ValidationError({'is_margin_enabled': _("Margin can only be enabled for Margin or Isolated Margin wallet types.")})
+
+        if is_margin_enabled and (leverage is None or leverage < 1):
+            raise serializers.ValidationError({'leverage': _("Leverage must be at least 1 when margin is enabled.")})
+
+        return attrs
+
+
+class WalletBalanceSerializer(CoreBaseSerializer):
     """
-    Serializer for WalletBalance model.
+    Serializer for the WalletBalance model.
     """
+    # افزودن فیلدهای مربوط به کیف پول
     wallet_type = serializers.CharField(source='wallet.wallet_type', read_only=True)
     exchange_account_label = serializers.CharField(source='wallet.exchange_account.label', read_only=True)
     exchange_name = serializers.CharField(source='wallet.exchange_account.exchange.name', read_only=True)
 
-    class Meta:
+    class Meta(CoreBaseSerializer.Meta):
         model = WalletBalance
-        fields = [
-            'id', 'wallet', 'wallet_type', 'exchange_account_label', 'exchange_name', 'asset_symbol',
-            'total_balance', 'available_balance', 'in_order_balance', 'frozen_balance', 'borrowed_balance',
-            'created_at', 'updated_at'
+        fields = CoreBaseSerializer.Meta.fields + [
+            'wallet', 'wallet_type', 'exchange_account_label', 'exchange_name', 'asset_symbol',
+            'total_balance', 'available_balance', 'in_order_balance', 'frozen_balance', 'borrowed_balance'
         ]
-        read_only_fields = ('created_at', 'updated_at')
 
     def validate(self, attrs):
         """
         Validates balance fields against each other.
-        e.g., available_balance + frozen_balance + borrowed_balance <= total_balance
+        e.g., available_balance + frozen_balance + borrowed_balance + in_order_balance <= total_balance
         """
         total = attrs.get('total_balance', Decimal('0'))
         available = attrs.get('available_balance', Decimal('0'))
@@ -194,65 +285,54 @@ class WalletBalanceSerializer(serializers.ModelSerializer):
         # محاسبه موجودی قابل معامله
         calc_available = total - frozen - borrowed - in_orders
         if available != calc_available:
-             raise ValidationError(_("Available balance does not match calculated value (Total - Frozen - Borrowed - In Orders)."))
+             raise serializers.ValidationError(_("Available balance does not match calculated value (Total - Frozen - Borrowed - In Orders)."))
 
         # اطمینان از اینکه مبالغ منفی نیستند
         for field_name in ['total_balance', 'available_balance', 'frozen_balance', 'borrowed_balance', 'in_order_balance']:
             val = attrs.get(field_name)
             if val is not None and val < 0:
-                raise ValidationError({field_name: _("Balance cannot be negative.")})
+                raise serializers.ValidationError({field_name: _("Balance cannot be negative.")})
 
         return attrs
 
 
-class AggregatedPortfolioSerializer(serializers.ModelSerializer):
+class AggregatedPortfolioSerializer(CoreOwnedModelSerializer): # ارث از CoreOwnedModelSerializer
     """
-    Serializer for AggregatedPortfolio model.
+    Serializer for the AggregatedPortfolio model.
+    Uses CoreOwnedModelSerializer for owner, created_at, updated_at.
     """
-    owner_email = serializers.CharField(source='owner.email', read_only=True) # نمایش ایمیل مالک
-
-    class Meta:
+    class Meta(CoreOwnedModelSerializer.Meta):
         model = AggregatedPortfolio
-        fields = [
-            'id', 'owner', 'owner_email', 'base_currency', 'total_equity', 'total_unrealized_pnl',
+        fields = CoreOwnedModelSerializer.Meta.fields + [ # افزودن فیلدهای خاص پرتفوی
+            'base_currency', 'total_equity', 'total_unrealized_pnl',
             'total_realized_pnl', 'total_pnl_percentage', 'total_commission_paid', 'total_funding_fees',
-            'last_valuation_at', 'created_at', 'updated_at'
+            'last_valuation_at'
         ]
-        read_only_fields = ('owner', 'created_at', 'updated_at') # owner از context تعیین می‌شود
+        # owner از CoreOwnedModelSerializer ارث می‌برد و فقط خواندنی است یا از context تعیین می‌شود
+        read_only_fields = CoreOwnedModelSerializer.Meta.read_only_fields
 
-    def create(self, validated_data):
+    def validate_base_currency(self, value):
         """
-        Override create to set the owner from the request context.
+        Validates the base currency format (e.g., 3-letter code).
         """
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            validated_data['owner'] = request.user
-        else:
-            raise ValidationError("Request context is required to determine the owner.")
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        """
-        Override update to prevent changing the owner.
-        """
-        validated_data.pop('owner', None) # جلوگیری از تغییر owner
-        return super().update(instance, validated_data)
+        if not re.match(r'^[A-Z]{3,16}$', value): # مثال ساده
+            raise serializers.ValidationError(_("Base currency must be a valid 3-16 letter code (e.g., USD, EUR, IRT)."))
+        return value
 
 
-class AggregatedAssetPositionSerializer(serializers.ModelSerializer):
+class AggregatedAssetPositionSerializer(CoreBaseSerializer):
     """
-    Serializer for AggregatedAssetPosition model.
+    Serializer for the AggregatedAssetPosition model.
     """
+    # افزودن فیلد برای نمایش ایمیل مالک پرتفوی
     portfolio_owner_email = serializers.CharField(source='aggregated_portfolio.owner.email', read_only=True)
 
-    class Meta:
+    class Meta(CoreBaseSerializer.Meta):
         model = AggregatedAssetPosition
-        fields = [
-            'id', 'aggregated_portfolio', 'portfolio_owner_email', 'asset_symbol',
-            'total_quantity', 'total_value_in_base_currency', 'per_exchange_breakdown',
-            'created_at', 'updated_at'
+        fields = CoreBaseSerializer.Meta.fields + [
+            'aggregated_portfolio', 'portfolio_owner_email', 'asset_symbol',
+            'total_quantity', 'total_value_in_base_currency', 'per_exchange_breakdown'
         ]
-        read_only_fields = ('created_at', 'updated_at')
 
     def validate_per_exchange_breakdown(self, value):
         """
@@ -260,67 +340,121 @@ class AggregatedAssetPositionSerializer(serializers.ModelSerializer):
         Example: Checks if it's a dictionary and has expected keys per exchange.
         """
         if not isinstance(value, dict):
-            raise ValidationError(_("Per exchange breakdown must be a JSON object."))
+            raise serializers.ValidationError(_("Per exchange breakdown must be a JSON object."))
 
         # منطق اعتبارسنجی سفارشی برای ساختار JSON
         # مثلاً بررسی اینکه هر کلید یک کد صرافی معتبر باشد و مقادیر شامل 'quantity', 'value' باشند
         # valid_exchange_codes = [ex.code for ex in Exchange.objects.all()] # یا از کش استفاده کنید
         # for exchange_code, details in value.items():
         #     if exchange_code.upper() not in valid_exchange_codes:
-        #         raise ValidationError(f"Invalid exchange code '{exchange_code}' in breakdown.")
+        #         raise serializers.ValidationError(f"Invalid exchange code '{exchange_code}' in breakdown.")
         #     if not isinstance(details, dict) or 'quantity' not in details or 'value' not in details:
-        #         raise ValidationError(f"Invalid structure for exchange '{exchange_code}' in breakdown.")
+        #         raise serializers.ValidationError(f"Invalid structure for exchange '{exchange_code}' in breakdown.")
         #     # ... اعتبارسنجی‌های بیشتر ...
         return value
 
+    def validate(self, attrs):
+        """
+        Validates consistency between total_quantity, total_value, and per_exchange_breakdown.
+        """
+        total_quantity = attrs.get('total_quantity', Decimal('0'))
+        total_value = attrs.get('total_value_in_base_currency', Decimal('0'))
+        breakdown = attrs.get('per_exchange_breakdown', {})
 
-class OrderHistorySerializer(serializers.ModelSerializer):
+        # مثال: چک کردن اینکه مجموع مقادیر در breakdown با total_quantity برابر است
+        # این فقط یک مثال است و ممکن است نیاز به تغییر داشته باشد
+        sum_quantity_from_breakdown = sum(
+            Decimal(str(item.get('quantity', 0))) for item in breakdown.values()
+        )
+        if total_quantity != sum_quantity_from_breakdown:
+             raise serializers.ValidationError({"per_exchange_breakdown": _("Sum of quantities in breakdown does not match total_quantity.")})
+
+        # مثال: چک کردن اینکه مجموع ارزش‌ها در breakdown با total_value برابر است
+        sum_value_from_breakdown = sum(
+            Decimal(str(item.get('value', 0))) for item in breakdown.values()
+        )
+        if total_value != sum_value_from_breakdown:
+             raise serializers.ValidationError({"per_exchange_breakdown": _("Sum of values in breakdown does not match total_value_in_base_currency.")})
+
+        return attrs
+
+
+class OrderHistorySerializer(CoreBaseSerializer):
     """
-    Serializer for OrderHistory model.
+    Serializer for the OrderHistory model.
     """
+    # افزودن فیلدهای مربوط به حساب صرافی و بات
     exchange_account_label = serializers.CharField(source='exchange_account.label', read_only=True)
     exchange_name = serializers.CharField(source='exchange_account.exchange.name', read_only=True)
     bot_name = serializers.CharField(source='trading_bot.name', read_only=True, allow_null=True)
 
-    class Meta:
+    class Meta(CoreBaseSerializer.Meta):
         model = OrderHistory
-        fields = [
-            'id', 'exchange_account', 'exchange_account_label', 'exchange_name', 'order_id', 'symbol',
+        fields = CoreBaseSerializer.Meta.fields + [
+            'exchange_account', 'exchange_account_label', 'exchange_name', 'order_id', 'symbol',
             'side', 'order_type', 'status', 'price', 'quantity', 'executed_quantity', 'cumulative_quote_qty',
             'time_placed', 'time_updated', 'commission', 'commission_asset', 'trading_bot', 'bot_name',
-            'created_at', 'updated_at'
         ]
-        read_only_fields = ('created_at', 'updated_at')
 
-    # ممکن است نیاز به اعتبارسنجی داده‌های ورودی داشته باشید (مثلاً اطمینان از اینکه order_id منحصر به فرد است برای این حساب)
-    # def validate(self, attrs):
-    #     exchange_account = attrs.get('exchange_account')
-    #     order_id = attrs.get('order_id')
-    #     if exchange_account and order_id:
-    #         if OrderHistory.objects.filter(exchange_account=exchange_account, order_id=order_id).exists():
-    #             raise ValidationError("An order with this ID already exists for this exchange account.")
-    #     return attrs
+    def validate(self, attrs):
+        """
+        Validates order history data.
+        e.g., checks if status is consistent with filled amounts, side/type validity.
+        """
+        status = attrs.get('status')
+        executed_qty = attrs.get('executed_quantity', Decimal('0'))
+        quantity = attrs.get('quantity', Decimal('0'))
+        side = attrs.get('side')
+        order_type = attrs.get('order_type')
+
+        # چک کردن وضعیت با مقدار اجرا شده
+        if status == 'FILLED' and executed_qty != quantity:
+            raise serializers.ValidationError({"status": _("Status 'FILLED' requires executed quantity to match total quantity.")})
+        if status == 'CANCELED' and executed_qty == quantity:
+            raise serializers.ValidationError({"status": _("Status 'CANCELED' is inconsistent with fully executed quantity. Use 'FILLED' instead.")})
+
+        # چک کردن اینکه side و order_type معتبر باشند
+        valid_sides = [choice[0] for choice in OrderHistory.SIDE_CHOICES]
+        valid_types = [choice[0] for choice in OrderHistory.ORDER_TYPE_CHOICES]
+        if side and side not in valid_sides:
+            raise serializers.ValidationError({"side": _("Invalid order side.")})
+        if order_type and order_type not in valid_types:
+            raise serializers.ValidationError({"order_type": _("Invalid order type.")})
+
+        # اطمینان از اینکه قیمت و مقدار مثبت هستند
+        for field_name in ['price', 'quantity', 'executed_quantity', 'cumulative_quote_qty', 'commission']:
+            val = attrs.get(field_name)
+            if val is not None and val < 0:
+                raise serializers.ValidationError({field_name: _("Value cannot be negative.")})
+
+        # چک کردن اینکه آیا تاریخ ایجاد بعد از تاریخ بروزرسانی است
+        time_placed = attrs.get('time_placed')
+        time_updated = attrs.get('time_updated')
+        if time_placed and time_updated and time_placed > time_updated:
+             raise serializers.ValidationError({"time_updated": _("Update time cannot be earlier than placement time.")})
+
+        return attrs
 
 
-class MarketDataCandleSerializer(serializers.ModelSerializer):
+class MarketDataCandleSerializer(CoreBaseSerializer):
     """
-    Serializer for MarketDataCandle model.
+    Serializer for the MarketDataCandle model.
     """
+    # افزودن فیلد برای نمایش نام صرافی
     exchange_name = serializers.CharField(source='exchange.name', read_only=True)
 
-    class Meta:
+    class Meta(CoreBaseSerializer.Meta):
         model = MarketDataCandle
-        fields = [
-            'id', 'exchange', 'exchange_name', 'symbol', 'interval', 'open_time', 'open', 'high', 'low', 'close',
+        fields = CoreBaseSerializer.Meta.fields + [
+            'exchange', 'exchange_name', 'symbol', 'interval', 'open_time', 'open', 'high', 'low', 'close',
             'volume', 'close_time', 'quote_asset_volume', 'number_of_trades',
-            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'created_at', 'updated_at'
+            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume'
         ]
-        read_only_fields = ('created_at', 'updated_at')
 
     def validate(self, attrs):
         """
         Validates OHLCV data consistency.
-        e.g., Low <= Open <= High, Low <= Close <= High, Volume >= 0
+        e.g., Low <= Open <= High, Low <= Close <= High, Volume >= 0, Timestamp logic.
         """
         open_price = attrs.get('open', Decimal('0'))
         high_price = attrs.get('high', Decimal('0'))
@@ -328,28 +462,38 @@ class MarketDataCandleSerializer(serializers.ModelSerializer):
         close_price = attrs.get('close', Decimal('0'))
         volume = attrs.get('volume', Decimal('0'))
 
+        # چک کردن اعداد منفی
         if volume < 0:
-            raise ValidationError({"volume": _("Volume cannot be negative.")})
+            raise serializers.ValidationError({"volume": _("Volume cannot be negative.")})
 
-        # اعتبارسنجی منطق قیمت
-        if not (low_price <= open_price <= high_price and low_price <= close_price <= high_price):
-             hp = float(high_price)
-             lp = float(low_price)
-             op = float(open_price)
-             cp = float(close_price)
-             raise ValidationError(f"OHLCV prices are inconsistent: L:{lp} O:{op} H:{hp} C:{cp}")
+        if open_price < 0 or high_price < 0 or low_price < 0 or close_price < 0:
+            raise serializers.ValidationError(_("Prices must be non-negative."))
+
+        # چک کردن منطق قیمت
+        hp = float(high_price)
+        lp = float(low_price)
+        op = float(open_price)
+        cp = float(close_price)
+        if not (lp <= op <= hp and lp <= cp <= hp):
+             raise serializers.ValidationError(f"OHLCV prices are inconsistent: L:{lp} O:{op} H:{hp} C:{cp}")
 
         if high_price < low_price:
-            raise ValidationError({"high": _("High price cannot be less than Low price.")})
+            raise serializers.ValidationError({"high": _("High price cannot be less than Low price.")})
+
+        # چک کردن تاریخ‌های باز و بسته
+        open_time = attrs.get('open_time')
+        close_time = attrs.get('close_time')
+        if open_time and close_time and open_time > close_time:
+            raise serializers.ValidationError({"close_time": _("Close time cannot be earlier than open time.")})
 
         return attrs
 
-# --- سریالایزرهایی که از Core ارث می‌برند ---
-# این سریالایزرها می‌توانند در اپلیکیشن‌های دیگر نیز استفاده شوند
-# مثال: اگر یک مدل جدید در instruments یا یک مدل دیگر در exchanges وجود داشت که از BaseOwnedModel ارث می‌برد
-# class SomeOwnedModelSerializer(CoreOwnedModelSerializer): # فرض: CoreOwnedModelSerializer در apps.core.serializers وجود دارد
-#     class Meta(CoreOwnedModelSerializer.Meta):
-#         model = SomeOwnedModel
-#         fields = CoreOwnedModelSerializer.Meta.fields + ['specific_field_1', 'specific_field_2']
+# --- سایر سریالایزرها ---
+# می‌توانید برای سایر مدل‌هایی که در exchanges/models.py تعریف می‌کنید نیز Serializer بنویسید
+# مثلاً اگر مدل ExchangeConnectionLog وجود داشت:
+# class ExchangeConnectionLogSerializer(CoreBaseSerializer):
+#     class Meta(CoreBaseSerializer.Meta):
+#         model = ExchangeConnectionLog
+#         fields = CoreBaseSerializer.Meta.fields + ['exchange_account', 'status', 'reason', 'connected_at', 'disconnected_at']
 
 logger.info("Exchanges serializers loaded successfully.")

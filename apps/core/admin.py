@@ -39,9 +39,7 @@ class AuditLogAdmin(admin.ModelAdmin):
     )
     list_filter = ('action', 'target_model', 'created_at', 'user')
     search_fields = ('user__email', 'target_model', 'details', 'ip_address')
-    readonly_fields = (
-        'user', 'action', 'target_model', 'target_id', 'details_summary', 'ip_address', 'user_agent', 'session_key', 'created_at'
-    )
+    readonly_fields = ('user', 'action', 'target_model', 'target_id', 'details_summary', 'ip_address', 'user_agent', 'session_key', 'created_at')
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
 
@@ -69,14 +67,14 @@ class AuditLogAdmin(admin.ModelAdmin):
                 summary_parts.append(f"{key}: {str(value)[:30]}{'...' if len(str(value)) > 30 else ''}") # محدود کردن طول مقدار
             return " | ".join(summary_parts) if summary_parts else "No details"
         return str(details)[:100] + "..." if len(str(details)) > 100 else str(details) # اگر رشته بود
-    details_summary.short_description = 'Details Summary'
+    details_summary.short_description = "Details Summary"
 
     fieldsets = (
         (None, {
             'fields': ('user', 'action', 'target_model', 'target_id')
         }),
         ('Details', {
-            'fields': ('details_summary', 'details'), # ممکن است بخواهید details را در collapsible قرار دهید
+            'fields': ('details_summary', 'details'), # استفاده از فیلد سفارشی
             'classes': ('collapse',) # قابل جمع شدن
         }),
         ('Context', {
@@ -127,11 +125,9 @@ class SystemSettingAdmin(admin.ModelAdmin):
     value_preview.short_description = 'Value (Preview)'
 
     # ممکن است بخواهید یک فیلد ورودی اضافه کنید در fieldsets یا یک تابع save_model بنویسید که کش را فعال/غیرفعال کند.
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        # مثال: فعال‌سازی تاسک برای بروزرسانی کش تنظیمات
-        # from .tasks import invalidate_system_setting_cache_task
-        # invalidate_system_setting_cache_task.delay(obj.key)
+    # def save_model(self, request, obj, form, change):
+    #     # منطقی برای بروزرسانی کش یا اعتبارسنجی امنیتی ممکن است اضافه شود
+    #     super().save_model(request, obj, form, change)
 
 
 @admin.register(CacheEntry)
@@ -174,19 +170,14 @@ class CacheEntryAdmin(admin.ModelAdmin):
     #     super().save_model(request, obj, form, change)
 
 
-# --- مدیریت مدل‌های BaseOwnedModel و TimeStampedModel ---
-# نکته: مدل‌های BaseModel, BaseOwnedModel, TimeStampedModel انتزاعی (abstract) هستند
-# و نمی‌توانند مستقیماً در ادمین ثبت شوند.
-# اما مدل‌هایی که از آن‌ها ارث می‌برند (مثلاً Instrument, Strategy, AgentLog) می‌توانند ادمین داشته باشند.
-# مثال فرضی برای یک مدل واقعی که از BaseOwnedModel ارث می‌برد (مثلاً InstrumentWatchlist از instruments)
-# اگر InstrumentWatchlist در اپلیکیشن instruments بود، اینجا نباید ثبت شود.
-# اما اگر مدلی مانند 'CoreOwnedItem' وجود داشت که در اپلیکیشن core تعریف شده بود:
-# @admin.register(CoreOwnedItem)
-# class CoreOwnedItemAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'owner_username', 'created_at', 'updated_at')
+# --- مثال: ادمین برای یک مدل BaseOwnedModel ---
+# اگر مدلی وجود داشت که مستقیماً از BaseOwnedModel ارث می‌برد و در core تعریف شده بود:
+# @admin.register(SomeCoreOwnedModel)
+# class SomeCoreOwnedModelAdmin(admin.ModelAdmin):
+#     list_display = ('id', 'name', 'owner_username', 'created_at')
 #     list_filter = ('created_at', 'owner')
 #     search_fields = ('name', 'owner__username')
-#     readonly_fields = ('owner', 'created_at', 'updated_at')
+#     readonly_fields = ('created_at', 'updated_at')
 #     raw_id_fields = ('owner',) # برای انتخاب کارآمد
 #
 #     def owner_username(self, obj):
@@ -194,21 +185,39 @@ class CacheEntryAdmin(admin.ModelAdmin):
 #     owner_username.short_description = 'Owner'
 #     owner_username.admin_order_field = 'owner__username'
 
-# --- مدیریت سایر مدل‌های Core ---
-# مثال: اگر مدل InstrumentGroup در این اپلیکیشن بود:
-# @admin.register(InstrumentGroup)
-# class InstrumentGroupAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'description', 'default_tick_size', 'default_lot_size')
-#     search_fields = ('name', 'description')
+# --- مثال: ادمین برای InstrumentWatchlist ---
+# اگر مدل InstrumentWatchlist در اپلیکیشن instruments بود، اما به دلیل وابستگی به core، اینجا نیز می‌توانید ادمین آن را ایجاد کنید.
+# اما ترجیحاً در اپلیکیشن مربوطه (instruments) قرار می‌گیرد.
+# اگر core شامل مدل‌های مشابهی باشد، می‌توانید به صورت زیر ایجاد کنید:
+# from apps.instruments.models import InstrumentWatchlist
+# @admin.register(InstrumentWatchlist)
+# class InstrumentWatchlistAdmin(admin.ModelAdmin):
+#     list_display = ('name', 'owner_username', 'is_public', 'created_at', 'updated_at')
+#     list_filter = ('is_public', 'created_at', 'owner')
+#     search_fields = ('name', 'owner__username', 'instruments__symbol')
+#     readonly_fields = ('created_at', 'updated_at')
+#     raw_id_fields = ('owner', 'instruments') # برای انتخاب کارآمد
+#     filter_horizontal = ('instruments',) # ویجتی برای انتخاب چندتایی
+#     fieldsets = (
+#         (None, {
+#             'fields': ('name', 'description', 'owner', 'is_public')
+#         }),
+#         ('Instruments', {
+#             'fields': ('instruments',), # با استفاده از filter_horizontal
+#         }),
+#         ('Meta', {
+#             'fields': ('created_at', 'updated_at'),
+#             'classes': ('collapse',)
+#         }),
+#     )
+#
+#     def owner_username(self, obj):
+#         return obj.owner.username
+#     owner_username.short_description = 'Owner'
+#     owner_username.admin_order_field = 'owner__username'
 
-# مثال: اگر مدل IndicatorGroup در این اپلیکیشن بود:
-# @admin.register(IndicatorGroup)
-# class IndicatorGroupAdmin(admin.ModelAdmin):
-#     list_display = ('name', 'description')
-#     search_fields = ('name', 'description')
-
-# --- ادمین‌های سایر مدل‌ها ---
-# می‌توانید برای سایر مدل‌هایی که در apps/core/models.py تعریف کرده‌اید نیز Admin ایجاد کنید.
+# --- سایر مدل‌های احتمالی ---
+# می‌توانید برای سایر مدل‌هایی که در apps/core/models.py تعریف می‌کنید نیز Admin ایجاد کنید.
 # مثلاً اگر مدل LogEvent وجود داشت:
 # @admin.register(LogEvent)
 # class LogEventAdmin(admin.ModelAdmin):
